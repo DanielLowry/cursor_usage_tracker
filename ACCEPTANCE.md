@@ -1,52 +1,68 @@
-# Cursor Usage Tracker — Acceptance Criteria
+# Cursor Usage Tracker — Acceptance Criteria (2025 Stack)
 
 The project is considered complete when all the following pass.
 
 ---
 
-## Data Acquisition
-- [ ] First-run onboarding launches Chromium, user can log in to Cursor, and profile persists.
-- [ ] Hourly headless scraping succeeds with network JSON capture.
-- [ ] If network capture fails, DOM table parser runs and produces equivalent normalized output.
-- [ ] Change detection works: no duplicate snapshots for identical data.
-- [ ] Failing both methods logs error and sends email alert.
+## Data Acquisition (Playwright, Node)
+- [ ] First‑run onboarding launches Chromium non‑headless, user can log in to Cursor, and the **profile persists** to the mounted directory.
+- [ ] Hourly headless scraping **succeeds** with network JSON capture.
+- [ ] If network capture fails, **DOM table parser** runs and produces **equivalent normalized output**.
+- [ ] **Change detection** works: no duplicate snapshots for identical data (hash unchanged).
+- [ ] Failing both methods **logs an error**, enqueues an **alert**, and a notifier email is sent.
 
-## Data Storage
-- [ ] SQLite schema matches §3 in SPEC.md.
-- [ ] All numeric values normalized (commas stripped, currency → cents, missing → 0).
-- [ ] Historical data retained indefinitely.
-- [ ] `snapshots.table_hash` changes only when data changes.
+## Scheduling & Workers
+- [ ] An **hourly** schedule exists (BullMQ repeatable job or Vercel Cron) that triggers `scrape` safely (single leader, no duplicate runs).
+- [ ] `aggregate` job runs after `scrape` and upserts materialized metrics, then **warms Redis cache** for dashboard queries.
+- [ ] `housekeeping` job rotates logs and trims raw blob retention to the last 20 captures.
+
+## Data Storage (PostgreSQL via Prisma)
+- [ ] Prisma schema includes all tables in §3 of SPEC.md (including enums and UUID PKs).
+- [ ] All numeric values are normalized (commas stripped, currency → **cents**, missing → `0`).  
+- [ ] Historical data is retained indefinitely.
+- [ ] `snapshots.table_hash` changes **only** when data changes (verified by fixtures).
+- [ ] Appropriate indexes exist (see §3.2).
 
 ## Projections
-- [ ] Linear projection returns correct projected spend.
-- [ ] EWMA projection matches test fixture values for given half-life.
-- [ ] Status label updates correctly (On track / At risk / Over).
+- [ ] Linear projection returns the correct projected spend for provided fixtures.
+- [ ] EWMA projection matches test fixture values for a given half‑life (default 7 days).
+- [ ] Status label updates correctly (**On track / At risk / Over**).
 
 ## Alerts
-- [ ] Threshold alerts fire once per threshold per cycle.
-- [ ] Projection overrun alert fires once per cycle, clears when under budget for 48h.
+- [ ] Threshold alerts **fire once per threshold per cycle**.
+- [ ] Projection overrun alert **fires once per cycle**, and **clears when under budget for 48h**.
 - [ ] Scrape error alert triggers when both methods fail.
-- [ ] No data 24h alert triggers appropriately.
-- [ ] Alerts send successfully via Gmail SMTP with App Password.
+- [ ] No‑data‑24h alert triggers appropriately.
+- [ ] Emails are sent successfully via configured SMTP (Gmail App Password or other).
 
-## Dashboard API
-- [ ] All endpoints in §7.2 return expected JSON shapes.
-- [ ] `/api/models` includes cost per 1K tokens for each model.
-- [ ] `/api/cycle` and `/api/summary` reflect latest cycle data.
+## Web App API (Next.js Route Handlers)
+- [ ] All endpoints in §7.2 return expected JSON shapes with appropriate HTTP status codes.
+- [ ] `/api/models` includes **cost per 1K tokens** for each model.
+- [ ] `/api/cycle` and `/api/summary` reflect the **latest cycle** data.
+- [ ] Endpoints leverage Redis caching where specified and respect cache revalidation settings.
 
-## Dashboard UI
-- [ ] Sidebar allows enabling/disabling any tile.
-- [ ] All 7 initial tiles render correctly with sample data.
-- [ ] Budget update is possible via UI and persists.
-- [ ] Projection panel toggle between Linear and EWMA works.
+## Dashboard UI (Next.js + React)
+- [ ] Sidebar allows enabling/disabling any tile and the choice **persists** (local storage or user profile).
+- [ ] All **7 initial tiles** render correctly with sample data.
+- [ ] Budget update is possible via UI, is **role‑gated** (admin), and **persists**.
+- [ ] Projection panel **toggles** between Linear and EWMA and updates the chart accordingly.
+- [ ] Auth works (Auth.js); non‑authenticated users cannot access the dashboard.
 
-## Docker
-- [ ] Container builds successfully with Dockerfile.
-- [ ] Volumes `data` and `profile` persist between restarts.
-- [ ] `.env` config read correctly inside container.
-- [ ] `/healthz` responds OK when app running.
+## Deployment & Ops
+- [ ] Web app deploys successfully to **Vercel** (or container) with environment variables configured.
+- [ ] Worker container builds and runs with Playwright + Chromium; volumes for `/profile` and `/data` persist between restarts.
+- [ ] Redis and Postgres are reachable from both web and workers (network/credentials validated).
+- [ ] `/api/healthz` responds OK when app is running; worker heartbeat visible in logs/metrics.
 
 ## Testing & Resilience
-- [ ] Unit tests pass for normalization, projections, change detection.
-- [ ] Sample HTML/JSON fixtures parse correctly.
-- [ ] Logs write to `data/logs/` and rotate.
+- [ ] Unit tests pass for normalization, projections, and change detection (vitest).
+- [ ] Sample HTML/JSON fixtures parse correctly (Playwright DOM parser and network JSON normalizer).
+- [ ] E2E tests (Playwright) cover login, dashboard load, tile toggling, and budget update.
+- [ ] Logs are structured (JSON) and write to `/data/logs/` with rotation if self‑hosted.
+- [ ] Sentry is configured (DSN via env) and reports a forced test error in both web and worker.
+
+## Security
+- [ ] Auth secrets and SMTP credentials are not committed; environment configuration verified.
+- [ ] DB uses least‑privilege role for the application; Prisma migrations applied via CI.
+- [ ] HTTP security headers present; CSRF protection where applicable.
+
