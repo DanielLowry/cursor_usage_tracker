@@ -1,0 +1,29 @@
+{
+  "name": "@cursor-usage/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "clean": "rimraf .turbo node_modules .next"
+  },
+  "dependencies": {
+    "@cursor-usage/db": "workspace:*",
+    "@cursor-usage/types": "workspace:*",
+    "next": "14.1.0",
+    "next-auth": "^5.0.0-beta.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@cursor-usage/config": "workspace:*",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "eslint": "^8.56.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.0"
+  }
+}
