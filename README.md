@@ -19,6 +19,41 @@ If Node is not installed yet, or for step-by-step verification commands, see the
 ## Node version
 This repo includes an `.nvmrc` with `20`. Use your OS package manager plus `nvm`/`nvm-windows` to ensure Node 20.x. If you install a newer Node, switch to 20.x to match the toolchain.
 
+## Monorepo quickstart
+```bash
+# Ensure pnpm via Corepack (Windows PowerShell: use docs/INSTALL.windows.md)
+node -v  # should be v20.x
+corepack enable
+corepack prepare pnpm@9 --activate
+
+# Install workspace deps
+pnpm -w install
+
+# Build all packages/apps
+pnpm -w build
+
+# Run web app (dev)
+pnpm --filter @cursor-usage/web dev
+
+# Run worker (dev)
+pnpm --filter @cursor-usage/worker dev
+```
+
+## Workspace structure
+```
+.
+├─ apps/
+│  ├─ web/       # Next.js (App Router)
+│  └─ worker/    # Node worker (Playwright jobs)
+├─ packages/
+│  ├─ db/        # Prisma schema and DB client (scaffold)
+│  ├─ types/     # Shared TypeScript types
+│  └─ config/    # Shared lint/TS config presets
+├─ turbo.json
+├─ pnpm-workspace.yaml
+└─ tsconfig.json
+```
+
 ## References
 - Specification: `SPEC.md`
 - Acceptance Criteria: `ACCEPTANCE.md`

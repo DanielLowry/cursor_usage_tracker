@@ -53,3 +53,25 @@ Verification:
 Notes:
 - You may need to log out/in after adding your user to the `docker` group.
 - The repo includes `.nvmrc` set to `20`.
+
+## Repo setup and build
+```bash
+# Clone
+git clone https://github.com/your-org/cursor_usage_tracker.git
+cd cursor_usage_tracker
+
+# Ensure pnpm via Corepack
+node -v
+corepack enable
+corepack prepare pnpm@9 --activate
+
+# Install & build workspace
+pnpm -w install
+pnpm -w build
+
+# Run the web app (dev)
+pnpm --filter @cursor-usage/web dev
+
+# Run the worker (dev)
+pnpm --filter @cursor-usage/worker dev
+```

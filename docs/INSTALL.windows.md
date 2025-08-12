@@ -50,3 +50,25 @@ Notes:
 - Docker Desktop requires WSL2 and virtualization. If prompted, enable WSL and the Virtual Machine Platform features and reboot.
 - If `pnpm` is not found, ensure `node -v` returns 20.x and re-run the Corepack commands.
 - The repo includes `.nvmrc` set to `20`.
+
+## Repo setup and build (PowerShell)
+```powershell
+# Clone
+git clone https://github.com/your-org/cursor_usage_tracker.git
+cd cursor_usage_tracker
+
+# Ensure pnpm via Corepack
+node -v
+corepack enable
+corepack prepare pnpm@9 --activate
+
+# Install & build workspace
+pnpm -w install
+pnpm -w build
+
+# Run the web app (dev)
+pnpm --filter @cursor-usage/web dev
+
+# Run the worker (dev)
+pnpm --filter @cursor-usage/worker dev
+```
