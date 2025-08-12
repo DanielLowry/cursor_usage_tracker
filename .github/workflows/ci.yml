@@ -25,7 +25,9 @@ jobs:
           node-version-file: ".nvmrc"
           cache: "pnpm"
 
-      - uses: pnpm/action-setup@v4
+      # Make pnpm available via Corepack and honor package.json > packageManager
+      - name: Enable Corepack (pnpm)
+        run: corepack enable
 
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
