@@ -10,34 +10,24 @@ This repository is developed in phases. Phase 0 focuses only on bootstrapping yo
 - Docker (Docker Desktop on Windows; Docker Engine on Linux)
 - Git
 
-If Node is not installed yet, or for step-by-step verification commands, see the OS-specific guides below.
+If Node is not installed yet, or for step-by-step verification commands, see the OS-specific guides.
 
 ## OS-specific install guides
-- Windows: `docs/INSTALL.windows.md`
-- Linux (Ubuntu/Debian): `docs/INSTALL.linux.md`
+- Windows: [docs/INSTALL.windows.md](./docs/INSTALL.windows.md)
+- Linux (Ubuntu/Debian): [docs/INSTALL.linux.md](./docs/INSTALL.linux.md)
 
 ## Node version
 This repo includes an `.nvmrc` with `20`. Use your OS package manager plus `nvm`/`nvm-windows` to ensure Node 20.x. If you install a newer Node, switch to 20.x to match the toolchain.
 
 ## Monorepo quickstart
-```bash
-# Ensure pnpm via Corepack (Windows PowerShell: use docs/INSTALL.windows.md)
-node -v  # should be v20.x
-corepack enable
-corepack prepare pnpm@9 --activate
 
-# Install workspace deps
-pnpm -w install
+After installing the prerequisites, the repository setup involves these high-level steps:
 
-# Build all packages/apps
-pnpm -w build
+1.  **Install Dependencies:** Ensure Node.js, pnpm, and Docker are installed, then run the package installation command.
+2.  **Build Workspace:** Compile all packages and applications.
+3.  **Run Applications:** Start the development servers for the web and worker applications.
 
-# Run web app (dev)
-pnpm --filter @cursor-usage/web dev
-
-# Run worker (dev)
-pnpm --filter @cursor-usage/worker dev
-```
+For specific commands and step-by-step instructions, please refer to the OS-specific installation guides.
 
 ## Workspace structure
 ```
@@ -58,5 +48,3 @@ pnpm --filter @cursor-usage/worker dev
 - Specification: `SPEC.md`
 - Acceptance Criteria: `ACCEPTANCE.md`
 - License: `LICENSE` (PUSL-1.0 — personal use only)
-
-
