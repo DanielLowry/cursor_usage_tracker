@@ -66,8 +66,8 @@ corepack enable
 corepack prepare pnpm@9 --activate
 
 # Install & build workspace
-pnpm -w install
-pnpm -w build
+pnpm install
+pnpm build
 
 # Run the web app (dev)
 pnpm --filter @cursor-usage/web dev
