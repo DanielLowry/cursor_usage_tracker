@@ -1,11 +1,10 @@
 import { z } from "zod";
 
-// This is a placeholder for your environment variables.
-// As you add variables, define them here with Zod schemas.
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  // Example: DATABASE_URL: z.string().url(),
+  // Validate the DATABASE_URL from the .env file
+  DATABASE_URL: z.string().url().min(1, "DATABASE_URL is required"),
 });
 
-// You can export a parsed and validated env object from here.
+// This will throw a runtime error if the environment variables are invalid.
 export const env = EnvSchema.parse(process.env);
