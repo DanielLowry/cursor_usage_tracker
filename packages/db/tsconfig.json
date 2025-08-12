@@ -1,8 +1,6 @@
 {
-  "extends": "../../tsconfig.json",
-  "include": ["src"],
-  "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src"
-  }
+  "extends": "@cursor-usage/config/base.tsconfig.json",
+  "compilerOptions": {},
+  "include": ["src", "prisma"],
+  "exclude": ["node_modules", "dist"]
 }

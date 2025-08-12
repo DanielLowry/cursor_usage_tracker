@@ -3,20 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsup",
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "clean": "rimraf .turbo node_modules dist",
     "db:generate": "prisma generate",
     "db:push": "prisma db push --skip-generate",
     "lint": "eslint .",
-    "type-check": "tsc --noEmit"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@prisma/client": "^5.8.0"
   },
   "devDependencies": {
+    "@cursor-usage/config": "workspace:*",
     "@cursor-usage/types": "workspace:*",
     "eslint": "^8.56.0",
     "prisma": "^5.8.0",
