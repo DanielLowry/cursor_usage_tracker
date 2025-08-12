@@ -5,8 +5,7 @@ This guide installs Node 20.x, pnpm 9 via Corepack, and Docker Desktop on Window
 ## Option A — winget (simple)
 ```powershell
 # Node (LTS via winget). If it installs >20, use Option B to switch to 20.x.
-winget install OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreement
-
+winget install OpenJS.NodeJS.LTS --silent
 # Enable pnpm via Corepack
 node -v
 corepack enable
@@ -14,7 +13,7 @@ corepack prepare pnpm@9 --activate
 pnpm -v
 
 # Docker Desktop
-winget install Docker.DockerDesktop --silent --accept-package-agreements --accept-source-agreements
+winget install Docker.DockerDesktop --silent
 
 # Verify
 docker --version
@@ -24,7 +23,7 @@ git rev-parse --is-inside-work-tree
 ## Option B — nvm-windows (version control)
 ```powershell
 # Install nvm-windows
-winget install CoreyButler.NVMforWindows --silent --accept-package-agreements --accept-source-agreements
+winget install CoreyButler.NVMforWindows --silent
 
 # Close and reopen your terminal, then:
 nvm version
@@ -40,7 +39,7 @@ corepack prepare pnpm@9 --activate
 pnpm -v
 
 # Docker Desktop
-winget install Docker.DockerDesktop --silent --accept-package-agreements --accept-source-agreements
+winget install Docker.DockerDesktop --silent
 
 # Verify
 docker --version
