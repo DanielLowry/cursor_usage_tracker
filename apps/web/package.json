@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
+    "test": "vitest run --passWithNoTests",
     "clean": "rimraf .turbo node_modules .next"
   },
   "dependencies": {

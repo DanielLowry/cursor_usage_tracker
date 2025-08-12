@@ -3,15 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsup",
-    "clean": "rimraf .turbo node_modules dist",
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "clean": "rimraf dist .turbo",
     "lint": "eslint .",
-    "type-check": "tsc --noEmit"
+    "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
+    "@cursor-usage/config": "workspace:*",
     "eslint": "^8.56.0",
     "rimraf": "^5.0.5",
     "tsup": "^8.0.2",

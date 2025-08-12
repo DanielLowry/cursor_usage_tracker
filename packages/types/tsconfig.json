@@ -1,8 +1,6 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "@cursor-usage/config/base.tsconfig.json",
+  "compilerOptions": {},
   "include": ["src"],
-  "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src"
-  }
+  "exclude": ["node_modules", "dist"]
 }

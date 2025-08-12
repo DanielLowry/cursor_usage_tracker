@@ -6,6 +6,10 @@ node_modules
 # testing
 coverage
 
+# playwright & vitest
+playwright-report/
+test-results/
+
 # next.js
 .next/
 out/
@@ -38,3 +42,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local data (logs, etc.)
+/data
