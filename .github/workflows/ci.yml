@@ -19,16 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # If you use pnpm, ensure it's installed on both OSes
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
+      # Use Node version from your .nvmrc
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
 
-      - run: pnpm install
+      - uses: pnpm/action-setup@v4
+
+      - run: pnpm --version
+      - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm test
