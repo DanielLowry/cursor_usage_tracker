@@ -2,11 +2,9 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   test:
@@ -15,19 +13,33 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest]  # If you want super-stable, pin: [ubuntu-22.04, windows-2022]
+
     steps:
       - uses: actions/checkout@v4
 
-      # Use Node version from your .nvmrc
+      # Node from .nvmrc; no pnpm cache here (pnpm not on PATH yet)
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
-          cache: "pnpm"
 
-      # Make pnpm available via Corepack and honor package.json > packageManager
-      - name: Enable Corepack (pnpm)
+      # Make pnpm available according to package.json > packageManager (Corepack ships with Node)
+      - name: Enable Corepack
         run: corepack enable
+
+      # Cache pnpm store (works the same on Linux & Windows)
+      - name: Compute pnpm store path
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
