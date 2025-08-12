@@ -1,7 +1,8 @@
 module.exports = {
   root: true,
-  extends: ["@cursor-usage/config/library"],
+  extends: [require.resolve("@cursor-usage/config/library")],
   parserOptions: {
     project: "./tsconfig.json",
   },
+  ignorePatterns: ["**/*.js"],
 };
