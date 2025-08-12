@@ -10,26 +10,25 @@ on:
 
 jobs:
   test:
-    name: Lint & Test
-    runs-on: ubuntu-latest
+    name: Lint & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      # If you use pnpm, ensure it's installed on both OSes
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
 
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Test
-        run: pnpm test
+      - run: pnpm install
+      - run: pnpm lint
+      - run: pnpm test
