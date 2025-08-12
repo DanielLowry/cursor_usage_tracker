@@ -1,6 +1,6 @@
 {
   "extends": "@cursor-usage/config/base.tsconfig.json",
   "compilerOptions": {},
-  "include": ["src"],
+  "include": ["src", "tsup.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

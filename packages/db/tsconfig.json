@@ -1,6 +1,6 @@
 {
   "extends": "@cursor-usage/config/base.tsconfig.json",
   "compilerOptions": {},
-  "include": ["src", "prisma"],
+  "include": ["src", "prisma", "tsup.config.ts"],
   "exclude": ["node_modules", "dist"]
 }
