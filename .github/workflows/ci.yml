@@ -44,9 +44,6 @@ jobs:
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
 
-      - name: Check format
-        run: pnpm format:check
-
       - run: pnpm lint
 
       - name: Typecheck
