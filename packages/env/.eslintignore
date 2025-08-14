@@ -1,0 +1,5 @@
+# build artifacts
+**/dist/**
+# generated declarations
+**/*.d.ts
+**/*.d.mts
