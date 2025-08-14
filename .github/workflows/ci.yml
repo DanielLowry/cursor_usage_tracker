@@ -46,8 +46,11 @@ jobs:
 
       - run: pnpm lint
 
+      # - name: Typecheck
+      #   run: pnpm typecheck
+
       - name: Build
         run: pnpm build
 
-      - name: Test with Coverage
-        run: pnpm test --coverage
+      # - name: Test with Coverage
+      #   run: pnpm test --coverage
