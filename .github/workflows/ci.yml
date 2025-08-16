@@ -44,6 +44,9 @@ jobs:
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
 
+      - name: Build
+        run: pnpm build
+
       - name: Print and Validate Config (Success Case)
         run: pnpm print:config
         env:
@@ -51,12 +54,24 @@ jobs:
           REDIS_URL: "redis://localhost:6379"
           AUTH_SECRET: "test-secret"
 
-      - name: Validate Config (Failure Case)
+      - name: Validate Config (Failure Case) [Unix]
+        if: runner.os != 'Windows'
         run: |
           # This command is expected to fail, so we invert the exit code.
           # `&& exit 1` makes the step fail if the command succeeds.
           # `|| exit 0` makes the step succeed if the command fails.
           SMTP_PORT="not-a-number" pnpm print:config && exit 1 || exit 0
+
+      - name: Validate Config (Failure Case) [Windows]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          try {
+            $env:SMTP_PORT="not-a-number"; pnpm print:config
+            throw "The command was expected to fail, but it succeeded."
+          } catch {
+            Write-Host "Command failed as expected, which is correct."
+          }
 
       - run: pnpm lint
 
