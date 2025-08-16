@@ -66,10 +66,15 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          try {
-            $env:SMTP_PORT="not-a-number"; pnpm print:config
-            throw "The command was expected to fail, but it succeeded."
-          } catch {
+          # Set the environment variable for this command only
+          $env:SMTP_PORT = "not-a-number"
+          pnpm print:config
+          # Check the exit code of the last command. $? is true if it succeeded.
+          # We expect it to fail, so if it succeeds, we exit with 1 to fail the step.
+          if ($?) {
+            Write-Error "The command was expected to fail, but it succeeded."
+            exit 1
+          } else {
             Write-Host "Command failed as expected, which is correct."
           }
 
