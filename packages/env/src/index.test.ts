@@ -41,13 +41,33 @@ describe("loadConfig", () => {
     expect(config.DATABASE_URL).toBe(dbUrl);
   });
 
-  it.each([
-    ["an empty string", ""],
-    ["a malformed url", "not-a-valid-url"],
-  ])("should throw an error for an invalid DATABASE_URL (%s)", async (_, invalidUrl) => {
-    process.env.DATABASE_URL = invalidUrl;
-    const { loadConfig } = await import("./index");
-    // Use a regex to make the test less brittle to changes in the exact error message.
-    expect(() => loadConfig()).toThrow(/invalid environment variables/i);
+  describe("schema validation", () => {
+    it.each([
+      ["DATABASE_URL", "postgresql://u:p@h:1/d"],
+      ["REDIS_URL", "redis://h:1"],
+      ["AUTH_URL", "http://example.com"],
+      ["SMTP_FROM", "test@example.com"],
+      ["SMTP_PORT", "587", 587],
+    ])("should correctly parse valid %s", async (key, value, expected) => {
+      process.env[key] = value as string;
+      const { loadConfig } = await import("./index");
+      const config = loadConfig();
+      expect(config[key as keyof typeof config]).toBe(expected ?? value);
+    });
+
+    it.each([
+      ["DATABASE_URL", "", /cannot be empty/i],
+      ["DATABASE_URL", "not-a-valid-uri", /must be a valid connection string/i],
+      ["REDIS_URL", "", /cannot be empty/i],
+      ["REDIS_URL", "not-a-valid-uri", /must be a valid connection string/i],
+      ["AUTH_URL", "not-a-url", /must be a valid url/i],
+      ["AUTH_SECRET", "", /is required/i],
+      ["SMTP_FROM", "not-an-email", /must be a valid email address/i],
+      ["SMTP_PORT", "not-a-number", /expected number, received nan/i],
+    ])("should throw for invalid %s (%s)", async (key, value, message) => {
+      process.env[key] = value;
+      const { loadConfig } = await import("./index");
+      expect(() => loadConfig()).toThrow(message);
+    });
   });
 });
