@@ -10,8 +10,8 @@ if (process.env.NODE_ENV === "development") {
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  // Validate the DATABASE_URL from the .env file
-  DATABASE_URL: z.string().url().optional(),
+  // Check we have a non-empty string for url
+  DATABASE_URL: z.string().min(1).optional(),
 });
 
 export type Config = z.infer<typeof EnvSchema>;

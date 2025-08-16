@@ -16,8 +16,7 @@ describe("loadConfig", () => {
     delete process.env.NODE_ENV;
     const { loadConfig } = await import("./index");
     const config = loadConfig();
-    // Vitest sets NODE_ENV to 'test' by default.
-    expect(config.NODE_ENV).toBe("test");
+    expect(config.NODE_ENV).toBe("development");
   });
 
   it("should correctly parse NODE_ENV when set", async () => {
