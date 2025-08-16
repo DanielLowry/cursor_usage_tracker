@@ -10,8 +10,19 @@ if (process.env.NODE_ENV === "development") {
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  // Check we have a non-empty string for url
-  DATABASE_URL: z.string().min(1).optional(),
+  // A database URL is a URI. The native URL constructor is too strict and
+  // does not support all schemes (e.g., `postgresql://`).
+  // This custom validation is a good middle-ground, checking for a scheme
+  // without being too restrictive. The database driver will perform the
+  // ultimate validation.
+  DATABASE_URL: z
+    .string()
+    .min(1) // Catches empty strings
+    .refine(
+      (val) => val.includes('://'),
+      { message: 'Must be a valid connection string / URI, including a scheme (e.g., "postgresql://...").' }
+    )
+    .optional(),
 });
 
 export type Config = z.infer<typeof EnvSchema>;

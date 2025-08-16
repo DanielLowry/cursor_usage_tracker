@@ -41,9 +41,11 @@ describe("loadConfig", () => {
     expect(config.DATABASE_URL).toBe(dbUrl);
   });
 
-  it("should throw an error for an empty DATABASE_URL string", async () => {
-    // An empty string is invalid because the schema requires a minimum length of 1.
-    process.env.DATABASE_URL = "";
+  it.each([
+    ["an empty string", ""],
+    ["a malformed url", "not-a-valid-url"],
+  ])("should throw an error for an invalid DATABASE_URL (%s)", async (_, invalidUrl) => {
+    process.env.DATABASE_URL = invalidUrl;
     const { loadConfig } = await import("./index");
     // Use a regex to make the test less brittle to changes in the exact error message.
     expect(() => loadConfig()).toThrow(/invalid environment variables/i);
