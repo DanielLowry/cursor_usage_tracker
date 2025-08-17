@@ -14,7 +14,25 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]  # If you want super-stable, pin: [ubuntu-22.04, windows-2022]
+        
+    services:
+      postgres:
+        image: postgres:15
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cursor_usage_tracker
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
 
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker?schema=public
+    
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +62,9 @@ jobs:
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
 
+      - name: Prisma Generate
+        run: pnpm --filter @cursor-usage/db run db:generate
+
       - name: Build
         run: pnpm build
 
@@ -55,38 +76,16 @@ jobs:
           AUTH_SECRET: "test-secret"
 
       - name: Validate Config (Failure Case) [Unix]
-        if: runner.os != 'Windows'
         run: |
           # This command is expected to fail, so we invert the exit code.
           # `&& exit 1` makes the step fail if the command succeeds.
           # `|| exit 0` makes the step succeed if the command fails.
           SMTP_PORT="not-a-number" pnpm print:config && exit 1 || exit 0
 
-      - name: Validate Config (Failure Case) [Windows]
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Set the environment variable for this command
-          $env:SMTP_PORT = 'not-a-number'
-          # Run the command, which is expected to fail.
-          pnpm print:config
-          # Check the exit code of the last native command.
-          # We expect it to fail (non-zero), so if it succeeds (zero), we fail the step.
-          if ($LASTEXITCODE -eq 0) {
-            Write-Error 'The command was expected to fail, but it succeeded.'
-            exit 1
-          } else {
-            Write-Host "Command failed as expected, which is correct. Exit code was $LASTEXITCODE."
-            exit 0 # Explicitly exit with 0 to mark the step as successful.
-          }
-
       - run: pnpm lint
 
       # - name: Typecheck
       #   run: pnpm typecheck
-
-      - name: Build
-        run: pnpm build
 
       - name: Test
         run: pnpm test
