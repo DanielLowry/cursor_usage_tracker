@@ -7,9 +7,14 @@ on:
     branches: [main]
 
 jobs:
-  linux-ci:
-    name: Linux CI
-    runs-on: ubuntu-latest
+  test:
+    name: Lint & Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]  # If you want super-stable, pin: [ubuntu-22.04, windows-2022]
+        
     services:
       postgres:
         image: postgres:15
@@ -27,51 +32,60 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker?schema=public
+    
     steps:
       - uses: actions/checkout@v4
+
+      # Node from .nvmrc; no pnpm cache here (pnpm not on PATH yet)
       - uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
+
+      # Make pnpm available according to package.json > packageManager (Corepack ships with Node)
       - name: Enable Corepack
         run: corepack enable
-      - name: Compute pnpm store
+
+      # Cache pnpm store (works the same on Linux & Windows)
+      - name: Compute pnpm store path
         id: pnpm-cache
         shell: bash
         run: echo "STORE_PATH=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
       - name: Cache pnpm store
         uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ubuntu-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ubuntu-pnpm-store-
+            ${{ runner.os }}-pnpm-store-
+
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
-      - name: Prisma Generate
-        run: pnpm --filter @cursor-usage/db run db:generate
-      - name: Build
-        run: pnpm build
-      - run: pnpm lint
-      - run: pnpm test
 
-  windows-ci:
-    name: Windows CI
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-      - run: pnpm install --frozen-lockfile
       - name: Prisma Generate
         run: pnpm --filter @cursor-usage/db run db:generate
+
       - name: Build
         run: pnpm build
-      - name: Lint
-        run: pnpm lint
+
+      - name: Print and Validate Config (Success Case)
+        run: pnpm print:config
+        env:
+          DATABASE_URL: "postgresql://test:test@localhost:5432/test"
+          REDIS_URL: "redis://localhost:6379"
+          AUTH_SECRET: "test-secret"
+
+      - name: Validate Config (Failure Case) [Unix]
+        run: |
+          # This command is expected to fail, so we invert the exit code.
+          # `&& exit 1` makes the step fail if the command succeeds.
+          # `|| exit 0` makes the step succeed if the command fails.
+          SMTP_PORT="not-a-number" pnpm print:config && exit 1 || exit 0
+
+      - run: pnpm lint
+
+      # - name: Typecheck
+      #   run: pnpm typecheck
+
       - name: Test
         run: pnpm test
