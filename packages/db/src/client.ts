@@ -1,14 +1,15 @@
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { PrismaClient } = require('@prisma/client');
+/* eslint-disable @typescript-eslint/no-var-requires */
+const PrismaClientModule: any = require('@prisma/client');
+const PrismaClientCtor: any = PrismaClientModule?.PrismaClient;
 
-// Ensure a single PrismaClient instance across hot reloads in development.
-const globalForPrisma = globalThis as unknown as { prisma?: any };
+// Persist a single PrismaClient instance across hot reloads in dev.
+const globalForPrisma: any = globalThis as any;
+const GLOBAL_KEY = '__cursor_usage_db_prisma__';
 
-export const prisma =
-  globalForPrisma.prisma ?? new PrismaClient({
-    log: process.env.NODE_ENV === 'production' ? ['error'] : ['query', 'error', 'warn'],
-  });
+export const prisma: any = globalForPrisma[GLOBAL_KEY] ?? new PrismaClientCtor({
+  log: process.env.NODE_ENV === 'production' ? ['error'] : ['query', 'error', 'warn'],
+});
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+if (!globalForPrisma[GLOBAL_KEY]) globalForPrisma[GLOBAL_KEY] = prisma;
 
 export default prisma; 

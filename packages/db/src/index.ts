@@ -1,1 +1,3 @@
-export { prisma } from './client';
+import { prisma } from './client';
+export { prisma };
+export default prisma;
