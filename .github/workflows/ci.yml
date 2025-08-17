@@ -13,26 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]  # If you want super-stable, pin: [ubuntu-22.04, windows-2022]
-        
-    services:
-      postgres:
-        image: postgres:15
-        ports:
-          - 5432:5432
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: cursor_usage_tracker
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker?schema=public
-    
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +26,30 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      # Cache pnpm store (works the same on Linux & Windows)
+      # Linux-only: start a Postgres service via Docker to exercise DB integration
+      - name: Start Postgres (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          docker rm -f cursor_usage_tracker_pg || true
+          docker run --name cursor_usage_tracker_pg \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_DB=cursor_usage_tracker \
+            -p 5432:5432 \
+            -d postgres:15
+
+      - name: Wait for Postgres (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          for i in {1..60}; do
+            if docker exec cursor_usage_tracker_pg pg_isready -U postgres; then
+              echo "Postgres ready"; break;
+            fi
+            sleep 1
+          done
+
+            # Cache pnpm store (works the same on Linux & Windows)
+
       - name: Compute pnpm store path
         id: pnpm-cache
         shell: bash
