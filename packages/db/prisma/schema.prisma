@@ -10,11 +10,50 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Initial schema - will be expanded in later phases
+// Enums for model fields
+enum DataSource {
+  network_json
+  dom_table
+
+  @@map("data_source")
+}
+
+enum BlobKind {
+  network_json
+  html
+
+  @@map("blob_kind")
+}
+
+// Models for Phase P2.2
 model UsageEvent {
-  id        String   @id @default(uuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String     @id @default(uuid())
+  captured_at DateTime   @db.Timestamptz()
+  source      DataSource
+  raw_blob    RawBlob?  @relation(fields: [raw_blob_id], references: [id])
+  raw_blob_id String?   @db.Uuid
 
   @@map("usage_events")
+  @@index([captured_at])
+}
+
+model Snapshot {
+  id            String   @id @default(uuid())
+  captured_at   DateTime @db.Timestamptz()
+  table_hash    String
+  rows_count    Int
+
+  @@map("snapshots")
+  @@index([captured_at])
+}
+
+model RawBlob {
+  id          String    @id @default(uuid())
+  captured_at DateTime  @db.Timestamptz()
+  kind        BlobKind
+  url         String?
+  payload     Bytes
+  usage_events UsageEvent[]
+
+  @@map("raw_blobs")
 }

@@ -10,12 +10,16 @@
     "clean": "rimraf .turbo node_modules dist",
     "db:generate": "prisma generate",
     "db:push": "prisma db push --skip-generate",
-    "db:migrate": "echo \"No migrations in this phase\"",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@prisma/client": "^5.8.0"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   },
   "devDependencies": {
     "@cursor-usage/config": "workspace:*",
