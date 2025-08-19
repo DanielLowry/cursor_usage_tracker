@@ -68,6 +68,7 @@ jobs:
 
       - name: Prisma Generate
         run: pnpm --filter @cursor-usage/db run db:generate
+        
       # Test database migration files
       - name: Prisma Migrate Deploy
         if: ${{ matrix.os == 'ubuntu-latest' }}

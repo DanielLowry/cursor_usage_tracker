@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 const PrismaClientModule: any = require('@prisma/client');
 const PrismaClientCtor: any = PrismaClientModule?.PrismaClient;
 
