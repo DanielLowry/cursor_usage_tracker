@@ -69,12 +69,14 @@ jobs:
       - name: Prisma Generate
         run: pnpm --filter @cursor-usage/db run db:generate
 
-      # Migrate and validate DB connection for the new base models
+      # Test database migration files
       - name: Prisma Migrate Deploy
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
-          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker pnpm --filter @cursor-usage/db run db:migrate
-          
+          pnpm --filter @cursor-usage/db run db:migrate
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker"
+
       - name: DB Connection Test
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
