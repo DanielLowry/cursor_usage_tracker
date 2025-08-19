@@ -1,4 +1,14 @@
-const { PrismaClient } = require('@prisma/client');
+let PrismaClient;
+try {
+  PrismaClient = require('@prisma/client').PrismaClient;
+} catch (err) {
+  console.error('Prisma Client is not installed. Please run:');
+  console.error('  pnpm --filter @cursor-usage/db install');
+  console.error('Then generate/migrate:');
+  console.error('  pnpm --filter @cursor-usage/db run db:generate');
+  console.error('  pnpm --filter @cursor-usage/db run db:migrate');
+  process.exit(1);
+}
 
 (async () => {
   const prisma = new PrismaClient();
