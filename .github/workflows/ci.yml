@@ -73,13 +73,13 @@ jobs:
       - name: Prisma Migrate Deploy
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
-          DATABASE_URL=postgresql://test:test@localhost:5432/cursor_usage_tracker pnpm --filter @cursor-usage/db run db:migrate
+          DATABASE_URL=postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker pnpm --filter @cursor-usage/db run db:migrate
       - name: DB Connection Test
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
           node scripts/test-db-connection.js
         env:
-          DATABASE_URL: "postgresql://test:test@localhost:5432/cursor_usage_tracker"
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker"
 
       - name: Build
         run: pnpm build
