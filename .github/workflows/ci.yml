@@ -48,21 +48,19 @@ jobs:
             sleep 1
           done
 
-
-      # Windows-only: start a local Postgres (no Docker)
-      - name: Setup Postgres (Windows)
+      - name: Install PostgreSQL
         if: ${{ matrix.os == 'windows-latest' }}
-        uses: ankane/setup-postgres@v1
+        uses: tj-actions/install-postgresql@v3
         with:
-          postgres-version: 15
-          database: cursor_usage_tracker
-          
-      # Set password so your existing DATABASE_URL keeps working
-      - name: Set Postgres password (Windows)
+          postgresql-version: 15
+
+      - name: Init DB (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         shell: pwsh
         run: |
           psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+          psql -U postgres -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='cursor_usage_tracker';" `
+            | findstr 1 || psql -U postgres -d postgres -c "CREATE DATABASE cursor_usage_tracker;"
 
       
       # Cache pnpm store (works the same on Linux & Windows)
