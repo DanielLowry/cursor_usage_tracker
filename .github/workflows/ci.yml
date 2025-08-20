@@ -33,12 +33,12 @@ jobs:
         with:
           database: cursor_usage_tracker
           
-      # Set password so your existing DATABASE_URL keeps working
+      # Set password using the postgres OS user (no password required yet)
       - name: Set Postgres password (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
         shell: bash
         run: |
-          psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"      
+          sudo -u postgres psql -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"   
 
       - name: Wait for Postgres (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
