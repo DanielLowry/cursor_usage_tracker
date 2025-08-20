@@ -48,8 +48,24 @@ jobs:
             sleep 1
           done
 
-            # Cache pnpm store (works the same on Linux & Windows)
 
+      # Windows-only: start a local Postgres (no Docker)
+      - name: Setup Postgres (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        uses: ankane/setup-postgres@v1
+        with:
+          postgres-version: 15
+          database: cursor_usage_tracker
+          
+      # Set password so your existing DATABASE_URL keeps working
+      - name: Set Postgres password (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+
+      
+      # Cache pnpm store (works the same on Linux & Windows)
       - name: Compute pnpm store path
         id: pnpm-cache
         shell: bash
