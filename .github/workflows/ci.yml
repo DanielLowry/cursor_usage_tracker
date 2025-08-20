@@ -26,17 +26,19 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      # Linux-only: start a Postgres service via Docker to exercise DB integration
-      - name: Start Postgres (Linux)
+      # Linux-only: start a local Postgres (no Docker)
+      - name: Setup Postgres (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
+        uses: ankane/setup-postgres@v1
+        with:
+          database: cursor_usage_tracker
+          
+      # Set password so your existing DATABASE_URL keeps working
+      - name: Set Postgres password (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        shell: bash
         run: |
-          docker rm -f cursor_usage_tracker_pg || true
-          docker run --name cursor_usage_tracker_pg \
-            -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_USER=postgres \
-            -e POSTGRES_DB=cursor_usage_tracker \
-            -p 5432:5432 \
-            -d postgres:15
+          psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"      
 
       - name: Wait for Postgres (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
@@ -47,7 +49,6 @@ jobs:
             fi
             sleep 1
           done
-
 
       # Windows-only: start a local Postgres (no Docker)
       - name: Setup Postgres (Windows)
