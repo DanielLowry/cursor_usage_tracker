@@ -54,7 +54,6 @@ jobs:
         if: ${{ matrix.os == 'windows-latest' }}
         uses: ankane/setup-postgres@v1
         with:
-          postgres-version: 15
           database: cursor_usage_tracker
           
       # Set password so your existing DATABASE_URL keeps working
