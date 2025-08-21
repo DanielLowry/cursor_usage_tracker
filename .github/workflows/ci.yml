@@ -18,7 +18,7 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4
-      - uses: ./.github/workflows/reusable-build.yml
+      - uses: ./.github/workflows/build.yml
 
       # Linux-only: start a local Postgres (no Docker)
       - name: Setup Postgres (Linux)
