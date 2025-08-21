@@ -10,7 +10,6 @@ jobs:
 
   test:
     name: Lint & Test (${{ matrix.os }})
-    needs: build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -18,7 +17,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: ./.github/actions/build
-      
+
       # Linux-only: start a local Postgres (no Docker)
       - name: Setup Postgres (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
