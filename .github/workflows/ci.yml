@@ -16,9 +16,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      
+
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/build
+      - uses: ./.github/workflows/reusable-build.yml
 
       # Linux-only: start a local Postgres (no Docker)
       - name: Setup Postgres (Linux)
