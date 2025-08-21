@@ -1,15 +1,58 @@
 name: Build
 
-runs:
-  using: "composite"
-  steps:
-    - uses: actions/checkout@v4
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: Runner label (e.g. ubuntu-latest, windows-latest, macos-latest)
+        required: false
+        type: string
+        default: ubuntu-latest
+      node_version_file:
+        description: Path to .nvmrc (or .node-version)
+        required: false
+        type: string
+        default: .nvmrc
+      working_directory:
+        description: Directory to run steps in
+        required: false
+        type: string
+        default: .
+      checkout:
+        description: Whether to checkout the repo
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      NPM_TOKEN:
+        required: false
 
-    # Node from .nvmrc; no pnpm cache here (pnpm not on PATH yet)
-    - uses: actions/setup-node@v4
-      with:
-        node-version-file: ".nvmrc"
+defaults:
+  run:
+    shell: bash
+    working-directory: ${{ inputs.working_directory }}
 
-    # Make pnpm available according to package.json > packageManager (Corepack ships with Node)
-    - name: Enable Corepack
-      run: corepack enable
+jobs:
+  build:
+    name: Build
+    runs-on: ${{ inputs.os }}
+
+    steps:
+      - name: Checkout
+        if: ${{ inputs.checkout }}
+        uses: actions/checkout@v4
+
+      - name: Setup Node from file
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ inputs.node_version_file }}
+          cache: pnpm
+
+      - name: Configure NPM auth (optional)
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: |
+          npm config set //registry.npmjs.org/:_authToken "${{ secrets.NPM_TOKEN }}"
+          npm whoami || true
+
+      - name: Enable Corepack
+        run: corepack enable
