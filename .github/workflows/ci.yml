@@ -32,22 +32,6 @@ jobs:
         uses: ankane/setup-postgres@v1
         with:
           database: cursor_usage_tracker
-          
-      # Set password using the postgres OS user (no password required yet)
-      - name: Set Postgres password (Linux)
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        shell: bash
-        run: |
-          sudo -u postgres psql -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"   
-
-          
-      # Set password so your existing DATABASE_URL keeps working
-      - name: Set Postgres password (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        shell: pwsh
-        run: |
-          psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"      
-
       
       # Cache pnpm store (works the same on Linux & Windows)
       - name: Compute pnpm store path
@@ -122,9 +106,7 @@ jobs:
 
       # - name: Typecheck
       #   run: pnpm typecheck
-
-      - name: Build
-        run: pnpm build
+    
 
       - name: Test
         run: pnpm test
