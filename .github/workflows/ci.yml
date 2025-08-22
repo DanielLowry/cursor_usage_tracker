@@ -7,7 +7,6 @@ on:
     branches: [main]
 
 jobs:
-
   test:
     name: Lint & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -18,7 +17,15 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4
-      - uses: ./.github/workflows/build.yml
+
+      # Node from .nvmrc; no pnpm cache here (pnpm not on PATH yet)
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      # Make pnpm available according to package.json > packageManager (Corepack ships with Node)
+      - name: Enable Corepack
+        run: corepack enable
 
       # Linux-only: start a local Postgres (no Docker)
       - name: Setup Postgres (Linux)
