@@ -105,6 +105,9 @@ jobs:
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
 
+      - name: Prisma Generate
+        run: pnpm --filter @cursor-usage/db run db:generate
+
       - name: Build
         run: pnpm build
 
