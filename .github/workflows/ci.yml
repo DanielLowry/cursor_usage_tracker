@@ -80,6 +80,12 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
 
+      - name: DB Index Usage Test
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: pnpm --filter @cursor-usage/db run test:indexes
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
+
       - name: DB Connection Test
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: pnpm --filter @cursor-usage/db run test:db

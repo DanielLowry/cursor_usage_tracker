@@ -14,7 +14,8 @@
     "db:seed": "prisma db seed",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
-    "test:db": "node scripts/test-db-connection.js"
+    "test:db": "node scripts/test-db-connection.js",
+    "test:indexes": "node scripts/test-index-usage.js"
   },
   "dependencies": {
     "@prisma/client": "^5.8.0"
