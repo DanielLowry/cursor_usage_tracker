@@ -6,66 +6,7 @@ on:
   pull_request:
     branches: [main]
 
-jobs:
-  db-smoke:
-    name: DB Smoke Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: ".nvmrc"
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      # Start a local Postgres (not docker)
-      - name: Setup Postgres
-        uses: ankane/setup-postgres@v1
-        with:
-          database: cursor_usage_tracker
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Prisma Generate
-        run: pnpm --filter @cursor-usage/db run db:generate
-        
-      # Set password using the postgres OS user (no password required yet)
-      - name: Set Postgres password (Linux)
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        shell: bash
-        run: |
-          sudo -u postgres psql -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"   
-          
-      # Set password so your existing DATABASE_URL keeps working
-      - name: Set Postgres password (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        shell: pwsh
-        run: |
-          psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"      
-
-      - name: DB Smoke
-        run: pnpm exec tsx scripts/db-smoke.ts
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
-
-
-      # Test database migration files
-      - name: Prisma Migrate Deploy
-        run: pnpm --filter @cursor-usage/db run db:migrate
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
-
-      - name: DB Connection Test
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: pnpm --filter @cursor-usage/db run test:db
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
+jobs:      
 
   test:
     name: Lint & Test (${{ matrix.os }})
@@ -112,6 +53,39 @@ jobs:
 
       - name: Prisma Generate
         run: pnpm --filter @cursor-usage/db run db:generate
+
+      # Set password using the postgres OS user (no password required yet)
+      - name: Set Postgres password (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        shell: bash
+        run: |
+          sudo -u postgres psql -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"   
+        
+      # Set password so your existing DATABASE_URL keeps working
+      - name: Set Postgres password (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"      
+
+      - name: DB Smoke
+        run: pnpm exec tsx scripts/db-smoke.ts
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
+
+
+      # Test database migration files
+      - name: Prisma Migrate Deploy
+        run: pnpm --filter @cursor-usage/db run db:migrate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
+
+      - name: DB Connection Test
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: pnpm --filter @cursor-usage/db run test:db
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
+
 
       - name: Build
         run: pnpm build
