@@ -7,7 +7,42 @@ on:
     branches: [main]
 
 jobs:
+  db-smoke:
+    name: DB Smoke (Postgres service)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd="pg_isready -U app -d app"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      DATABASE_URL: postgresql://app:app@localhost:5432/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - run: pnpm --version
+      - run: pnpm install --frozen-lockfile
+
+      - name: DB Smoke
+        run: pnpm exec tsx scripts/db-smoke.ts
   test:
+    needs: db-smoke
     name: Lint & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
