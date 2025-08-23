@@ -15,10 +15,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-    steps:
 
+    uses: ./.github/workflows/build.yml
+    steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/workflows/build.yml
+      
 
       # Linux-only: start a local Postgres (no Docker)
       - name: Setup Postgres (Linux)
@@ -70,9 +71,23 @@ jobs:
       - name: Prisma Generate
         run: pnpm --filter @cursor-usage/db run db:generate
         
+      # Set password using the postgres OS user (no password required yet)
+      - name: Set Postgres password (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        shell: bash
+        run: |
+          sudo -u postgres psql -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"   
+          
+      # Set password so your existing DATABASE_URL keeps working
+      - name: Set Postgres password (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"      
+
+
       # Test database migration files
       - name: Prisma Migrate Deploy
-        if: ${{ matrix.os == 'ubuntu-latest' }}
         run: pnpm --filter @cursor-usage/db run db:migrate
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
