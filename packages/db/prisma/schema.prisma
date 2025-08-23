@@ -27,7 +27,7 @@ enum BlobKind {
 
 // Models for Phase P2.2
 model UsageEvent {
-  id          String     @id @default(uuid())
+  id          String     @id @default(uuid()) @db.Uuid
   captured_at DateTime   @db.Timestamptz()
   source      DataSource
   raw_blob    RawBlob?  @relation(fields: [raw_blob_id], references: [id])
@@ -38,8 +38,10 @@ model UsageEvent {
 }
 
 model Snapshot {
-  id            String   @id @default(uuid())
+  id            String   @id @default(uuid()) @db.Uuid
   captured_at   DateTime @db.Timestamptz()
+  billing_period_start DateTime? @db.Date
+  billing_period_end   DateTime? @db.Date
   table_hash    String
   rows_count    Int
 
@@ -48,7 +50,7 @@ model Snapshot {
 }
 
 model RawBlob {
-  id          String    @id @default(uuid())
+  id          String    @id @default(uuid()) @db.Uuid
   captured_at DateTime  @db.Timestamptz()
   kind        BlobKind
   url         String?
