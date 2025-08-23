@@ -8,24 +8,12 @@ on:
 
 jobs:
   db-smoke:
-    name: DB Smoke (Postgres service)
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: app
-          POSTGRES_PASSWORD: app
-          POSTGRES_DB: app
-        ports:
-          - "5432:5432"
-        options: >-
-          --health-cmd="pg_isready -U app -d app"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=12
-    env:
-      DATABASE_URL: postgresql://app:app@localhost:5432/app
+    name: DB Smoke Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -36,13 +24,21 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
+      # Start a local Postgres (not docker)
+      - name: Setup Postgres
+        uses: ankane/setup-postgres@v1
+        with:
+          database: cursor_usage_tracker
+
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
+      - name: Prisma Generate
+        run: pnpm --filter @cursor-usage/db run db:generate
 
       - name: DB Smoke
         run: pnpm exec tsx scripts/db-smoke.ts
+
   test:
-    needs: db-smoke
     name: Lint & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -61,11 +57,7 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      # Linux-only: start a local Postgres (no Docker)
-      - name: Setup Postgres (Linux)
-        uses: ankane/setup-postgres@v1
-        with:
-          database: cursor_usage_tracker
+
       
       # Cache pnpm store (works the same on Linux & Windows)
       - name: Compute pnpm store path
