@@ -37,6 +37,8 @@ jobs:
 
       - name: DB Smoke
         run: pnpm exec tsx scripts/db-smoke.ts
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
 
   test:
     name: Lint & Test (${{ matrix.os }})
