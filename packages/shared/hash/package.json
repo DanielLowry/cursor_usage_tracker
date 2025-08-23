@@ -1,0 +1,22 @@
+{
+  "name": "@cursor-usage/hash",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "clean": "rimraf .turbo node_modules dist",
+    "lint": "eslint .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@cursor-usage/config": "workspace:*",
+    "typescript": "^5.3.0",
+    "tsup": "^8.0.2",
+    "eslint": "^8.56.0"
+  }
+}
+
+
