@@ -33,4 +33,3 @@ CREATE TABLE IF NOT EXISTS snapshots (
   rows_count            INTEGER NOT NULL
 );
 
-
