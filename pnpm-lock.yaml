@@ -75,6 +75,9 @@ importers:
       '@cursor-usage/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@cursor-usage/redis':
+        specifier: workspace:*
+        version: link:../../packages/shared/redis
       '@cursor-usage/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -166,6 +169,83 @@ importers:
       tsup:
         specifier: ^8.0.2
         version: 8.5.0(postcss@8.5.6)(tsx@4.20.4)(typescript@5.9.2)
+
+  packages/shared/hash:
+    devDependencies:
+      '@cursor-usage/config':
+        specifier: workspace:*
+        version: link:../../config
+      eslint:
+        specifier: ^8.56.0
+        version: 8.57.1
+      tsup:
+        specifier: ^8.0.2
+        version: 8.5.0(postcss@8.5.6)(tsx@4.20.4)(typescript@5.9.2)
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.2
+
+  packages/shared/normalize:
+    devDependencies:
+      '@cursor-usage/config':
+        specifier: workspace:*
+        version: link:../../config
+      eslint:
+        specifier: ^8.56.0
+        version: 8.57.1
+      tsup:
+        specifier: ^8.0.2
+        version: 8.5.0(postcss@8.5.6)(tsx@4.20.4)(typescript@5.9.2)
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.2
+
+  packages/shared/queues:
+    dependencies:
+      '@cursor-usage/env':
+        specifier: workspace:*
+        version: link:../../env
+      '@cursor-usage/redis':
+        specifier: workspace:*
+        version: link:../redis
+      bullmq:
+        specifier: ^5.1.0
+        version: 5.56.10
+    devDependencies:
+      '@cursor-usage/config':
+        specifier: workspace:*
+        version: link:../../config
+      eslint:
+        specifier: ^8.56.0
+        version: 8.57.1
+      tsup:
+        specifier: ^8.0.2
+        version: 8.5.0(postcss@8.5.6)(tsx@4.20.4)(typescript@5.9.2)
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.2
+
+  packages/shared/redis:
+    dependencies:
+      '@cursor-usage/env':
+        specifier: workspace:*
+        version: link:../../env
+      ioredis:
+        specifier: ^5.3.2
+        version: 5.7.0
+    devDependencies:
+      '@cursor-usage/config':
+        specifier: workspace:*
+        version: link:../../config
+      eslint:
+        specifier: ^8.56.0
+        version: 8.57.1
+      tsup:
+        specifier: ^8.0.2
+        version: 8.5.0(postcss@8.5.6)(tsx@4.20.4)(typescript@5.9.2)
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.2
 
   packages/types:
     devDependencies:

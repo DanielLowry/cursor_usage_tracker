@@ -51,6 +51,15 @@ jobs:
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
 
+      - name: Start Redis (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          docker run -d --name redis -p 6379:6379 redis:7-alpine
+          # wait for Redis to be ready
+          for i in {1..30}; do
+            if docker exec redis redis-cli ping | grep PONG; then
+              echo "Redis is ready"; break; fi; sleep 1; done
+
       - name: Prisma Generate
         run: pnpm --filter @cursor-usage/db run db:generate
 
@@ -91,6 +100,12 @@ jobs:
         run: pnpm --filter @cursor-usage/db run test:db
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
+
+      - name: Queue Smoke Test
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: pnpm --filter @cursor-usage/queues run test
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
 
 
       - name: Build

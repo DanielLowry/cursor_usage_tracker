@@ -1,28 +1,26 @@
 {
-  "name": "@cursor-usage/worker",
+  "name": "@cursor-usage/redis",
   "version": "0.1.0",
   "private": true,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
-    "start": "tsx src/index.ts",
-    "dev": "tsx --watch src/index.ts",
-    "clean": "rimraf dist .turbo",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "clean": "rimraf .turbo node_modules dist",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@cursor-usage/db": "workspace:*",
-    "@cursor-usage/types": "workspace:*",
-    "@cursor-usage/redis": "workspace:*",
-    "bullmq": "^5.1.0",
-    "playwright": "^1.42.0"
+    "@cursor-usage/env": "workspace:*",
+    "ioredis": "^5.3.2"
   },
   "devDependencies": {
     "@cursor-usage/config": "workspace:*",
-    "rimraf": "^5.0.5",
+    "eslint": "^8.56.0",
     "tsup": "^8.0.2",
     "typescript": "^5.3.0"
   }
 }
+
+
