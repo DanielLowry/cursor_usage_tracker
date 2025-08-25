@@ -52,7 +52,7 @@ jobs:
       
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm exec playwright install
+      - run: pnpm --filter @cursor-usage/worker run install_playwright 
 
       - name: Build
         run: pnpm build
