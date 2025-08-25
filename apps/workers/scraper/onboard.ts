@@ -1,6 +1,6 @@
-import { chromium } from 'playwright-chromium';
+import { chromium } from 'playwright';
 import { z } from 'zod';
-import path from 'path';
+import * as path from 'path';
 
 // Environment validation
 const envSchema = z.object({
