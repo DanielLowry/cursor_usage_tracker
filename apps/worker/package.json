@@ -8,6 +8,7 @@
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
+    "onboard": "tsx src/onboard.ts",
     "clean": "rimraf dist .turbo",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests"
@@ -17,7 +18,8 @@
     "@cursor-usage/types": "workspace:*",
     "@cursor-usage/redis": "workspace:*",
     "bullmq": "^5.1.0",
-    "playwright": "^1.42.0"
+    "playwright": "^1.42.0",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@cursor-usage/config": "workspace:*",

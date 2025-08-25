@@ -1,9 +1,0 @@
-{
-  "extends": "@cursor-usage/config/base.tsconfig.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "."
-  },
-  "include": ["./**/*.ts"],
-  "exclude": ["node_modules"]
-}
