@@ -38,6 +38,16 @@ enum AlertKind {
 model UsageEvent {
   id          String     @id @default(uuid()) @db.Uuid
   captured_at DateTime   @db.Timestamptz()
+  model       String
+  input_with_cache_write_tokens    Int
+  input_without_cache_write_tokens Int
+  cache_read_tokens                Int
+  output_tokens                    Int
+  total_tokens                     Int
+  api_cost_cents                   Int
+  cost_to_you_cents                Int
+  billing_period_start DateTime? @db.Date
+  billing_period_end   DateTime? @db.Date
   source      DataSource
   raw_blob    RawBlob?  @relation(fields: [raw_blob_id], references: [id])
   raw_blob_id String?   @db.Uuid

@@ -1,5 +1,6 @@
 import { chromium, BrowserContext } from 'playwright';
 import prisma from '../../../../packages/db/src/client';
+import { insertUsageEventsFromNetworkJson } from '../../../../packages/shared/ingest/src/insertFromNetworkJson';
 import { trimRawBlobs } from '../../../../packages/db/src/retention';
 import { z } from 'zod';
 import * as zlib from 'zlib';
@@ -73,14 +74,22 @@ export async function runScrape(): Promise<ScrapeResult> {
   const now = new Date();
   for (const item of captured) {
     const gz = await gzipBuffer(item.payload);
-    await prisma.rawBlob.create({
+    const blob = await prisma.rawBlob.create({
       data: {
         captured_at: now,
         kind: 'network_json',
         url: item.url,
         payload: gz,
       },
+      select: { id: true },
     });
+    // Attempt to parse and insert usage events from the same JSON
+    try {
+      const json = JSON.parse(item.payload.toString('utf8'));
+      await insertUsageEventsFromNetworkJson(json, now, blob.id);
+    } catch {
+      // ignore JSON parse errors here; raw blob already saved
+    }
     saved += 1;
   }
 
