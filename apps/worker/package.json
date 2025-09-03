@@ -5,11 +5,13 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "build": "tsup --dts",
     "install_playwright" : "playwright install",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
-    "onboard": "tsx src/onboard.ts",
+    "onboard": "tsx src/scripts/onboard.ts",
+    "worker:scraper": "node ./dist/workers/scraper.js",
+    "worker:scheduler": "node ./dist/workers/scheduler.js",
     "clean": "rimraf dist .turbo",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests"

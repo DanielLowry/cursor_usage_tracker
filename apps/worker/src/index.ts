@@ -1,4 +1,3 @@
-// This package will contain the BullMQ worker logic.
-// For now, it's a placeholder.
-
-console.log("Worker placeholder");
+// Entry aggregator for the worker package. In a multi-worker setup,
+// this can export shared utilities or start selected workers via CLI.
+export {};
