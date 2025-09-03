@@ -17,7 +17,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,md}\"",
     "print:config": "tsx scripts/print-config.ts",
-    "workers:scraper": "tsx apps/workers/scraper/index.ts",
+    "workers:scraper": "tsx apps/worker/src/workers/scraper.ts",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres"

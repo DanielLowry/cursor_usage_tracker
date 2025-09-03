@@ -1,5 +1,6 @@
 import { Worker, Queue, QueueEvents, Job } from 'bullmq';
 import { getRedis } from '@cursor-usage/redis';
+import { runScrape } from './scrape';
 
 const connection = getRedis();
 
@@ -10,8 +11,8 @@ export const startScraperWorker = (): Worker => {
   const worker = new Worker(
     'scraper',
     async (job: Job) => {
-      // Placeholder scrape logic
-      return { ok: true, received: job.data };
+      const result = await runScrape();
+      return result;
     },
     { connection }
   );
