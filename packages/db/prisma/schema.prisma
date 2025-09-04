@@ -66,6 +66,7 @@ model Snapshot {
 
   @@map("snapshots")
   @@index([captured_at])
+  @@unique([billing_period_start, billing_period_end, table_hash])
 }
 
 model RawBlob {
