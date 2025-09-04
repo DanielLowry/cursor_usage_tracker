@@ -1,6 +1,6 @@
 import { chromium, BrowserContext } from 'playwright';
 import prisma from '../../../../packages/db/src/client';
-import { insertUsageEventsFromNetworkJson } from '../../../../packages/shared/ingest/src/insertFromNetworkJson';
+import { insertUsageEventsFromNetworkJson } from '../../../../packages/db/src/usageEvents';
 import { trimRawBlobs } from '../../../../packages/db/src/retention';
 import { z } from 'zod';
 import * as zlib from 'zlib';

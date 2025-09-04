@@ -1,14 +1,14 @@
-import prisma from '../../../db/src/client';
-import { mapNetworkJson } from './mapNetworkJson';
+import prisma from './client';
+import { mapNetworkJson, type NormalizedUsageEvent } from '@cursor-usage/ingest';
 
 export async function insertUsageEventsFromNetworkJson(payload: unknown, capturedAt: Date, rawBlobId?: string | null) {
   const rows = mapNetworkJson(payload, capturedAt, rawBlobId);
   if (rows.length === 0) return { inserted: 0 };
 
-  // Use transaction for atomic insert
+  const client: any = prisma as any;
   await prisma.$transaction(
-    rows.map((r) =>
-      prisma.usageEvent.create({
+    rows.map((r: NormalizedUsageEvent) =>
+      client.usageEvent.create({
         data: {
           captured_at: r.captured_at,
           model: r.model,

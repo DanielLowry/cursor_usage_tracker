@@ -8,5 +8,6 @@ export default defineConfig({
     "src/workers/scheduler.ts",
   ],
   format: ["cjs", "esm"],
+  external: ["@cursor-usage/ingest", "@prisma/client", ".prisma/client/default"],
   clean: true,
 })
