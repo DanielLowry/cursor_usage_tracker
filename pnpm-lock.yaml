@@ -188,6 +188,31 @@ importers:
         specifier: ^5.3.0
         version: 5.9.2
 
+  packages/shared/ingest:
+    dependencies:
+      '@cursor-usage/normalize':
+        specifier: workspace:*
+        version: link:../normalize
+      zod:
+        specifier: ^3.22.4
+        version: 3.25.76
+    devDependencies:
+      '@cursor-usage/config':
+        specifier: workspace:*
+        version: link:../../config
+      eslint:
+        specifier: ^8.56.0
+        version: 8.57.1
+      tsup:
+        specifier: ^8.0.2
+        version: 8.5.0(postcss@8.5.6)(tsx@4.20.4)(typescript@5.9.2)
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.2
+      vitest:
+        specifier: ^1.3.1
+        version: 1.6.1(@types/node@20.19.10)
+
   packages/shared/normalize:
     devDependencies:
       '@cursor-usage/config':
