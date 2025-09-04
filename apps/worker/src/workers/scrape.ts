@@ -1,6 +1,6 @@
 import { chromium, BrowserContext } from 'playwright';
 import prisma from '../../../../packages/db/src/client';
-import { insertUsageEventsFromNetworkJson } from '../../../../packages/db/src/usageEvents';
+import { createSnapshotIfChanged } from '../../../../packages/db/src/snapshots';
 import { trimRawBlobs } from '../../../../packages/db/src/retention';
 import { z } from 'zod';
 import * as zlib from 'zlib';
@@ -83,10 +83,10 @@ export async function runScrape(): Promise<ScrapeResult> {
       },
       select: { id: true },
     });
-    // Attempt to parse and insert usage events from the same JSON
+    // Attempt to parse and create snapshot from the same JSON
     try {
       const json = JSON.parse(item.payload.toString('utf8'));
-      await insertUsageEventsFromNetworkJson(json, now, blob.id);
+      await createSnapshotIfChanged({ payload: json, capturedAt: now, rawBlobId: blob.id });
     } catch {
       // ignore JSON parse errors here; raw blob already saved
     }

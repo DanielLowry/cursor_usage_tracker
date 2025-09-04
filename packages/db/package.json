@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@prisma/client": "^5.8.0",
-    "@cursor-usage/ingest": "workspace:*"
+    "@cursor-usage/ingest": "workspace:*",
+    "@cursor-usage/hash": "workspace:*"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"

@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import prisma from '../../../../packages/db/src/client';
 import { ingestFixtures } from './scrape';
-import { insertUsageEventsFromNetworkJson } from '../../../../packages/db/src/usageEvents';
+import { createSnapshotIfChanged } from '../../../../packages/db/src/snapshots';
 
 async function reset() {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE usage_events RESTART IDENTITY CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE snapshots RESTART IDENTITY CASCADE');
   await prisma.$executeRawUnsafe('TRUNCATE TABLE raw_blobs RESTART IDENTITY CASCADE');
 }
 
@@ -33,12 +34,17 @@ describe('scrape integration: insert usage events from captured JSON', () => {
     const zlib = await import('zlib');
     const decompressed = zlib.gunzipSync(Buffer.from(blobs[0].payload));
     const json = JSON.parse(decompressed.toString('utf8'));
-    const ins = await insertUsageEventsFromNetworkJson(json, blobs[0].captured_at, blobs[0].id);
-    expect(ins.inserted).toBe(1);
+    const result = await createSnapshotIfChanged({ payload: json, capturedAt: blobs[0].captured_at, rawBlobId: blobs[0].id });
+    expect(result.wasNew).toBe(true);
+    expect(result.usageEventIds.length).toBe(1);
 
     const events = await prisma.usageEvent.findMany();
     expect(events.length).toBe(1);
     expect(events[0].raw_blob_id).toBe(blobs[0].id);
+
+    const snapshots = await prisma.snapshot.findMany();
+    expect(snapshots.length).toBe(1);
+    expect(snapshots[0].rows_count).toBe(1);
   });
 });
 

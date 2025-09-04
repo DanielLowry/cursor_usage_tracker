@@ -128,6 +128,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@cursor-usage/hash':
+        specifier: workspace:*
+        version: link:../shared/hash
       '@cursor-usage/ingest':
         specifier: workspace:*
         version: link:../shared/ingest

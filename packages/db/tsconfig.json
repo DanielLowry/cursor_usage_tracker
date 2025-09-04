@@ -4,7 +4,9 @@
     "baseUrl": ".",
     "paths": {
       "@cursor-usage/ingest": ["../shared/ingest/src/index.ts"],
-      "@cursor-usage/ingest/*": ["../shared/ingest/src/*"]
+      "@cursor-usage/ingest/*": ["../shared/ingest/src/*"],
+      "@cursor-usage/hash": ["../shared/hash/src/index.ts"],
+      "@cursor-usage/hash/*": ["../shared/hash/src/*"]
     }
   },
   "include": ["src", "prisma", "scripts", "tsup.config.ts"],
