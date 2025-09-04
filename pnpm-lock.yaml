@@ -128,6 +128,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@cursor-usage/ingest':
+        specifier: workspace:*
+        version: link:../shared/ingest
       '@prisma/client':
         specifier: ^5.8.0
         version: 5.22.0(prisma@5.22.0)
