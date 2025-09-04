@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import prisma from '../../../../packages/db/src/client';
 import { ingestFixtures } from './scrape';
-import { insertUsageEventsFromNetworkJson } from '../../../../packages/shared/ingest/src/insertFromNetworkJson';
+import { insertUsageEventsFromNetworkJson } from '../../../../packages/db/src/usageEvents';
 
 async function reset() {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE usage_events RESTART IDENTITY CASCADE');
