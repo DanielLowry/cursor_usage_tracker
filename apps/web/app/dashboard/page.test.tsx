@@ -1,28 +1,37 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import DashboardPage from './page';
 
-// Mock the Prisma client
-vi.mock('@cursor-usage/db', () => ({
-  prisma: {
-    $queryRaw: vi.fn()
-  }
-}));
-
 describe('DashboardPage', () => {
-  it('shows database connection status', async () => {
-    const { prisma } = await import('@cursor-usage/db');
-    
-    // Test successful connection
-    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ '1': 1 }]);
-    const { container } = render(await DashboardPage());
-    
-    expect(screen.getByTestId('db-status')).toHaveTextContent('yes');
-    
-    // Test failed connection
-    vi.mocked(prisma.$queryRaw).mockRejectedValueOnce(new Error('Connection failed'));
-    const { container: container2 } = render(await DashboardPage());
-    
-    expect(screen.getByTestId('db-status')).toHaveTextContent('no');
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    global.fetch = originalFetch as never;
+  });
+
+  it('renders summary text with API data', async () => {
+    vi.spyOn(global, 'fetch' as never).mockResolvedValue({
+      ok: true,
+      json: async () => ({ snapshotCount: 3, lastSnapshotAt: '2025-02-15T10:00:00.000Z', usageEventCount: 7 }),
+    } as never);
+
+    const ui = await DashboardPage();
+    render(ui as unknown as JSX.Element);
+
+    expect(screen.getByTestId('snapshot-count').textContent).toBe('3');
+    expect(screen.getByTestId('usage-event-count').textContent).toBe('7');
+    expect(screen.getByTestId('last-snapshot-at').textContent).toBe('2025-02-15T10:00:00.000Z');
+  });
+
+  it('renders fallback values if API fails', async () => {
+    vi.spyOn(global, 'fetch' as never).mockRejectedValue(new Error('network'));
+
+    const ui = await DashboardPage();
+    render(ui as unknown as JSX.Element);
+
+    expect(screen.getByTestId('snapshot-count').textContent).toBe('0');
+    expect(screen.getByTestId('usage-event-count').textContent).toBe('0');
+    expect(screen.getByTestId('last-snapshot-at').textContent).toBe('—');
   });
 });
