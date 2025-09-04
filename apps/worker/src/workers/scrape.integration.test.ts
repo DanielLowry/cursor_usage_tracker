@@ -29,7 +29,10 @@ describe('scrape integration: insert usage events from captured JSON', () => {
     const blobs = await prisma.rawBlob.findMany();
     expect(blobs.length).toBe(1);
 
-    const json = JSON.parse(Buffer.from(blobs[0].payload).toString('utf8'));
+    // Stored payloads are gzipped; decompress before parsing
+    const zlib = await import('zlib');
+    const decompressed = zlib.gunzipSync(Buffer.from(blobs[0].payload));
+    const json = JSON.parse(decompressed.toString('utf8'));
     const ins = await insertUsageEventsFromNetworkJson(json, blobs[0].captured_at, blobs[0].id);
     expect(ins.inserted).toBe(1);
 
