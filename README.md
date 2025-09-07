@@ -44,6 +44,132 @@ For specific commands and step-by-step instructions, please refer to the OS-spec
 └─ tsconfig.json
 ```
 
+## Development workflow
+
+These commands are run from the repository root unless noted otherwise.
+
+### Install dependencies
+
+```bash
+pnpm install
+```
+
+### Generate the Prisma client
+
+```bash
+pnpm --filter @cursor-usage/db db:generate
+```
+
+### Build all packages and apps
+
+```bash
+pnpm build
+```
+
+### Type checking
+
+```bash
+pnpm typecheck
+```
+
+### Linting
+
+```bash
+pnpm lint
+```
+
+### Testing
+
+```bash
+pnpm test
+```
+
+### Formatting
+
+```bash
+# check without modifying files
+pnpm format:check
+
+# apply Prettier formatting
+pnpm format
+```
+
+### Cleaning build artifacts
+
+```bash
+pnpm clean
+```
+
+## Running the application
+
+1. **Create an environment file**
+
+   Copy the example and fill in values for your setup:
+
+   ```bash
+   cp .env.example .env
+   # edit .env to match your database, Redis and auth settings
+   ```
+
+2. **Start required services**
+
+   A Postgres instance is provided via Docker Compose:
+
+   ```bash
+   pnpm db:up      # start Postgres in the background
+   pnpm db:logs    # follow container logs
+   pnpm db:down    # stop and remove the container
+   ```
+
+   Redis is also required for queues and caching. A quick local instance can be started with Docker:
+
+   ```bash
+   docker run --rm -p 6379:6379 redis:7
+   ```
+
+3. **Apply database migrations and seed data**
+
+   ```bash
+   pnpm --filter @cursor-usage/db db:migrate
+   pnpm --filter @cursor-usage/db db:seed   # optional
+   ```
+
+4. **Install Playwright browsers** (needed for worker tests and scraping)
+
+   ```bash
+   pnpm --filter @cursor-usage/worker install_playwright
+   ```
+
+5. **Start development servers**
+
+   ```bash
+   pnpm dev  # runs web and worker apps concurrently
+   ```
+
+   Individual apps can be started as well:
+
+   ```bash
+   pnpm --filter @cursor-usage/web dev     # Next.js at http://localhost:3000
+   pnpm --filter @cursor-usage/worker dev  # worker with watch mode
+   ```
+
+6. **Run workers manually**
+
+   ```bash
+   pnpm workers:scraper                          # run scraper from repo root
+   pnpm --filter @cursor-usage/worker onboard    # one-off onboarding script
+   pnpm --filter @cursor-usage/worker worker:scheduler
+   pnpm --filter @cursor-usage/worker worker:scraper
+   ```
+
+7. **Production build and start**
+
+   ```bash
+   pnpm build
+   pnpm --filter @cursor-usage/web start
+   pnpm --filter @cursor-usage/worker start
+   ```
+
 ## References
 - Specification: `SPEC.md`
 - Acceptance Criteria: `ACCEPTANCE.md`

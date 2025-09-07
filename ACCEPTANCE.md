@@ -5,10 +5,10 @@ The project is considered complete when all the following pass.
 ---
 
 ## Data Acquisition (Playwright, Node)
-- [ ] First‑run onboarding launches Chromium non‑headless, user can log in to Cursor, and the **profile persists** to the mounted directory.
-- [ ] Hourly headless scraping **succeeds** with network JSON capture.
+- [x] First‑run onboarding launches Chromium non‑headless, user can log in to Cursor, and the **profile persists** to the mounted directory.
+- [x] Hourly headless scraping **succeeds** with network JSON capture.
 - [ ] If network capture fails, **DOM table parser** runs and produces **equivalent normalized output**.
-- [ ] **Change detection** works: no duplicate snapshots for identical data (hash unchanged).
+- [x] **Change detection** works: no duplicate snapshots for identical data (hash unchanged).
 - [ ] Failing both methods **logs an error**, enqueues an **alert**, and a notifier email is sent.
 
 ## Scheduling & Workers
@@ -17,11 +17,11 @@ The project is considered complete when all the following pass.
 - [ ] `housekeeping` job rotates logs and trims raw blob retention to the last 20 captures.
 
 ## Data Storage (PostgreSQL via Prisma)
-- [ ] Prisma schema includes all tables in §3 of SPEC.md (including enums and UUID PKs).
-- [ ] All numeric values are normalized (commas stripped, currency → **cents**, missing → `0`).  
-- [ ] Historical data is retained indefinitely.
-- [ ] `snapshots.table_hash` changes **only** when data changes (verified by fixtures).
-- [ ] Appropriate indexes exist (see §3.2).
+- [x] Prisma schema includes all tables in §3 of SPEC.md (including enums and UUID PKs).
+- [x] All numeric values are normalized (commas stripped, currency → **cents**, missing → `0`).
+- [x] Historical data is retained indefinitely.
+- [x] `snapshots.table_hash` changes **only** when data changes (verified by fixtures).
+- [x] Appropriate indexes exist (see §3.2).
 
 ## Projections
 - [ ] Linear projection returns the correct projected spend for provided fixtures.
@@ -55,8 +55,8 @@ The project is considered complete when all the following pass.
 - [ ] `/api/healthz` responds OK when app is running; worker heartbeat visible in logs/metrics.
 
 ## Testing & Resilience
-- [ ] Unit tests pass for normalization, projections, and change detection (vitest).
-- [ ] Sample HTML/JSON fixtures parse correctly (Playwright DOM parser and network JSON normalizer).
+- [ ] Unit tests pass for normalization and change detection (projection tests pending) (vitest).
+- [ ] Sample network JSON fixtures parse correctly (DOM parser pending).
 - [ ] E2E tests (Playwright) cover login, dashboard load, tile toggling, and budget update.
 - [ ] Logs are structured (JSON) and write to `/data/logs/` with rotation if self‑hosted.
 - [ ] Sentry is configured (DSN via env) and reports a forced test error in both web and worker.
