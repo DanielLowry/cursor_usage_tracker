@@ -25,9 +25,10 @@
     "db:status:dev": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate status",
 
     "env:init": "test -f .env.development.local || cp .env.example .env.development.local",
-    "pg:start": "dotenv -e .env.development.local -- sh -lc 'pg_ctl -D ${PGDATA:-$HOME/pgdata} -l ${PGDATA:-$HOME/pgdata}/server.log start'",
-    "pg:stop": "dotenv -e .env.development.local -- sh -lc 'pg_ctl -D ${PGDATA:-$HOME/pgdata} stop'",
+
+    "pg:start": "pg_ctl -D ~/pgdata -l ~/pgdata/server.log start",
     "pg:ready": "psql -h /tmp -d cursor_usage_dev -c 'select 1'",
+
     "redis:start": "redis-server",
     "redis:ping": "redis-cli ping",
     "services:start": "concurrently -n postgres,redis -c auto \"pnpm pg:start\" \"pnpm redis:start\"",
@@ -45,12 +46,11 @@
     "setup:dev": "pnpm env:init && pnpm playwright:install && pnpm db:generate && pnpm db:migrate:dev && pnpm onboard",
     "up": "pnpm services:start && wait-on tcp:127.0.0.1:5432 tcp:127.0.0.1:6379 && pnpm dev:all",
 
-    "scrape:once": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/workers/scrape.ts",
-    "doctor": "pnpm print:config && pnpm pg:ready && pnpm redis:ping"
+    "scrape:once": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/workers/scrape.ts"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-     "concurrently": "^9.0.0",
+    "concurrently": "^9.0.0",
     "dotenv-cli": "^10.0.0",
     "prettier": "^3.2.0",
     "tsx": "^4.7.1",
