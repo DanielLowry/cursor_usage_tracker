@@ -21,8 +21,8 @@
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
-    "db:migrate:dev": "dotenv -e .env_dev -- pnpm --filter ./packages/db exec prisma migrate dev",
-    "db:status:dev":  "dotenv -e .env_dev -- pnpm --filter ./packages/db exec prisma migrate status"
+    "db:migrate:dev": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate dev",
+    "db:status:dev":  "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate status"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
