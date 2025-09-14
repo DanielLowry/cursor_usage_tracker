@@ -7,7 +7,7 @@
     "pnpm": ">=9.0.0"
   },
   "packageManager": "pnpm@9.8.0",
-  "scripts": {
+ "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
@@ -22,15 +22,41 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
     "db:migrate:dev": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate dev",
-    "db:status:dev":  "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate status"
+    "db:status:dev": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate status",
+
+    "env:init": "test -f .env.development.local || cp .env.example .env.development.local",
+    "pg:start": "dotenv -e .env.development.local -- sh -lc 'pg_ctl -D ${PGDATA:-$HOME/pgdata} -l ${PGDATA:-$HOME/pgdata}/server.log start'",
+    "pg:stop": "dotenv -e .env.development.local -- sh -lc 'pg_ctl -D ${PGDATA:-$HOME/pgdata} stop'",
+    "pg:ready": "psql -h /tmp -d cursor_usage_dev -c 'select 1'",
+    "redis:start": "redis-server",
+    "redis:ping": "redis-cli ping",
+    "services:start": "concurrently -n postgres,redis -c auto \"pnpm pg:start\" \"pnpm redis:start\"",
+
+    "db:generate": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma generate",
+    "db:studio": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma studio",
+
+    "playwright:install": "pnpm --filter ./apps/worker exec playwright install chromium",
+    "onboard": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/scripts/onboard.ts",
+
+    "worker:dev": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/index.ts",
+    "web:dev:lan": "pnpm --filter ./apps/web exec next dev -H 0.0.0.0 -p ${PORT:-3000}",
+
+    "dev:all": "concurrently -n worker,web -c auto \"pnpm worker:dev\" \"pnpm web:dev:lan\"",
+    "setup:dev": "pnpm env:init && pnpm playwright:install && pnpm db:generate && pnpm db:migrate:dev && pnpm onboard",
+    "up": "pnpm services:start && wait-on tcp:127.0.0.1:5432 tcp:127.0.0.1:6379 && pnpm dev:all",
+
+    "scrape:once": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/workers/scrape.ts",
+    "doctor": "pnpm print:config && pnpm pg:ready && pnpm redis:ping"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+     "concurrently": "^9.0.0",
     "dotenv-cli": "^10.0.0",
     "prettier": "^3.2.0",
     "tsx": "^4.7.1",
     "turbo": "^1.12.0",
     "typescript": "^5.3.0",
-    "vitest": "^1.3.1"
+    "vitest": "^1.3.1",
+    "wait-on": "^7.2.0"
   }
 }
