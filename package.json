@@ -40,7 +40,7 @@
     "onboard": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/scripts/onboard.ts",
 
     "worker:dev": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/index.ts",
-    "web:dev:lan": "pnpm --filter ./apps/web exec next dev -H 0.0.0.0 -p ${PORT:-3000}",
+    "web:dev:lan": "dotenv -e .env.development.local -- pnpm --filter ./apps/web exec next dev -H 0.0.0.0 -p ${PORT:-3000}",
 
     "dev:all": "concurrently -n worker,web -c auto \"pnpm worker:dev\" \"pnpm web:dev:lan\"",
     "setup:dev": "pnpm env:init && pnpm playwright:install && pnpm db:generate && pnpm db:migrate:dev && pnpm onboard",
