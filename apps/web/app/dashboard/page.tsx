@@ -1,4 +1,3 @@
-import 'server-only';
 
 export default async function DashboardPage() {
   // Fetch minimal summary from local API route. In production this is intra-process.
