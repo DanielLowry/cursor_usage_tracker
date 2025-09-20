@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, cleanup } from '@testing-library/react';
 import DashboardPage from './page';
 
 describe('DashboardPage', () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
     global.fetch = originalFetch as never;
   });
