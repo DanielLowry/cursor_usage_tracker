@@ -99,18 +99,50 @@ export async function createSnapshotIfChanged(input: SnapshotInput): Promise<Sna
     };
   }
 
-  // Data has changed - create new snapshot
-  const snapshot = await prisma.snapshot.create({
-    data: {
-      captured_at: input.capturedAt,
-      billing_period_start: billingPeriodStart,
-      billing_period_end: billingPeriodEnd,
-      table_hash: tableHash,
-      rows_count: normalizedEvents.length,
-    },
-  });
+  // Data has changed - try to create new snapshot. Handle race against
+  // concurrent writers by catching unique-constraint violations and
+  // returning the existing snapshot in that case.
+  let snapshot;
+  try {
+    snapshot = await prisma.snapshot.create({
+      data: {
+        captured_at: input.capturedAt,
+        billing_period_start: billingPeriodStart,
+        billing_period_end: billingPeriodEnd,
+        table_hash: tableHash,
+        rows_count: normalizedEvents.length,
+      },
+    });
+  } catch (err: any) {
+    // Prisma unique constraint error code is P2002. If another process
+    // beat us to creating the snapshot, fetch and return that snapshot.
+    if (err?.code === 'P2002') {
+      const existing = await prisma.snapshot.findFirst({
+        where: {
+          billing_period_start: billingPeriodStart,
+          billing_period_end: billingPeriodEnd,
+          table_hash: tableHash,
+        },
+      });
+      if (existing) {
+        const linkedEvents = await prisma.usageEvent.findMany({
+          where: {
+            captured_at: existing.captured_at,
+            source: 'network_json',
+          },
+          select: { id: true },
+        });
+        return {
+          snapshotId: existing.id,
+          wasNew: false,
+          usageEventIds: linkedEvents.map((e) => e.id),
+        };
+      }
+    }
+    throw err;
+  }
 
-  // Insert usage events and link to snapshot
+  // Insert usage events and return their ids
   const usageEventIds: string[] = [];
   for (const event of normalizedEvents) {
     const created = await prisma.usageEvent.create({
