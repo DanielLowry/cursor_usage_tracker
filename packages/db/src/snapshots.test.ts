@@ -41,8 +41,13 @@ describe('snapshotting with change detection', () => {
     expect(result2.wasNew).toBe(false);
     expect(result2.snapshotId).toBe(result1.snapshotId);
 
-    // Should have only one snapshot
-    const snapshots = await prisma.snapshot.findMany();
+    // Should have only one snapshot for this billing period
+    const snapshots = await prisma.snapshot.findMany({
+      where: {
+        billing_period_start: new Date('2025-02-01'),
+        billing_period_end: new Date('2025-02-28'),
+      },
+    });
     expect(snapshots.length).toBe(1);
   });
 
@@ -74,8 +79,14 @@ describe('snapshotting with change detection', () => {
     expect(result2.wasNew).toBe(true);
     expect(result2.snapshotId).not.toBe(result1.snapshotId);
 
-    // Should have two snapshots
-    const snapshots = await prisma.snapshot.findMany({ orderBy: { captured_at: 'asc' } });
+    // Should have two snapshots for this billing period
+    const snapshots = await prisma.snapshot.findMany({
+      where: {
+        billing_period_start: new Date('2025-02-01'),
+        billing_period_end: new Date('2025-02-28'),
+      },
+      orderBy: { captured_at: 'asc' },
+    });
     expect(snapshots.length).toBe(2);
     expect(snapshots[0].rows_count).toBe(1);
     expect(snapshots[1].rows_count).toBe(1);
@@ -96,7 +107,12 @@ describe('snapshotting with change detection', () => {
     await createSnapshotIfChanged({ payload, capturedAt, rawBlobId: null });
 
     // Try to manually insert duplicate (should fail)
-    const snapshots = await prisma.snapshot.findMany();
+    const snapshots = await prisma.snapshot.findMany({
+      where: {
+        billing_period_start: new Date('2025-02-01'),
+        billing_period_end: new Date('2025-02-28'),
+      },
+    });
     const firstSnapshot = snapshots[0];
     
     await expect(
