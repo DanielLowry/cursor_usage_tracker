@@ -1,3 +1,21 @@
+/**
+ * Test Suite Overview:
+ * - Exercises the environment configuration loader to ensure default values are applied, environment variables
+ *   are read correctly, and Zod schema validation enforces expected formats.
+ * - Parameterized cases cover both valid and invalid inputs for URLs, secrets, and numeric ports.
+ *
+ * Assumptions:
+ * - `loadConfig` reads from `process.env` at invocation time, so tests reset modules to re-run schema parsing
+ *   under different environment setups.
+ * - The validation schema throws informative errors when inputs are missing or malformed.
+ *
+ * Expected Outcomes & Rationale:
+ * - When values are absent, defaults such as `NODE_ENV=development` appear, confirming fallback logic.
+ * - Providing valid environment variables produces typed outputs (e.g., numeric SMTP port), demonstrating
+ *   transformation logic.
+ * - Invalid inputs trigger specific error messages, ensuring misconfiguration is caught at startup rather than
+ *   causing runtime failures.
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("loadConfig", () => {

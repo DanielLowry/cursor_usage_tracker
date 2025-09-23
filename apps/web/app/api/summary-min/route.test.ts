@@ -1,3 +1,20 @@
+/**
+ * Test Suite Overview:
+ * - Validates the `/api/summary-min` route against an isolated Postgres schema to ensure counts and timestamps
+ *   returned to the dashboard match the data stored in snapshots, usage events, and budgets tables.
+ * - Covers both the populated and empty-database cases to guarantee predictable API responses for callers.
+ *
+ * Assumptions:
+ * - Tests can create a schema-scoped DATABASE_URL so Prisma models operate on isolated tables without
+ *   interfering with concurrent test runs.
+ * - The route handler reads directly from Prisma without requiring request context beyond environment config.
+ *
+ * Expected Outcomes & Rationale:
+ * - When seeding representative data, the route should return the seeded counts and last snapshot timestamp,
+ *   demonstrating correct aggregation queries.
+ * - With no data present, the route must return zeros and `null` to ensure the UI can safely display defaults
+ *   instead of throwing or showing stale values.
+ */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 
 // NOTE: We avoid importing the route or prisma at module top-level so we can

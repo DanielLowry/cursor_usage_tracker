@@ -1,3 +1,18 @@
+/**
+ * Test Purpose:
+ * - Ensures the network JSON mapper converts fixture data into normalized usage event records with numeric
+ *   fields parsed, billing periods normalized to UTC midnight, and metadata such as source/blob association
+ *   populated.
+ *
+ * Assumptions:
+ * - Fixture data contains two rows covering a February billing period and includes currency/token values that
+ *   should be converted into numeric cents/tokens.
+ * - The mapper stamps the provided `capturedAt` and `rawBlobId` into the resulting records.
+ *
+ * Expected Outcome & Rationale:
+ * - The mapper returns two records with positive token/cost values, normalized billing period bounds, and the
+ *   correct source/blob identifiers, demonstrating that ingestion will produce analytics-ready rows.
+ */
 import { describe, it, expect } from 'vitest';
 import { mapNetworkJson } from './mapNetworkJson';
 import * as fs from 'fs';
@@ -20,5 +35,6 @@ describe('mapNetworkJson', () => {
     expect(r.raw_blob_id).toBe('blob-1');
   });
 });
+
 
 

@@ -1,3 +1,21 @@
+/**
+ * Test Suite Overview:
+ * - Covers numeric normalization helpers that convert currency strings to cents, safely parse integers, and
+ *   normalize dates to UTC boundaries.
+ *
+ * Assumptions:
+ * - Currency parsing should be resilient to commas, whitespace, accounting parentheses, and invalid inputs
+ *   (which should coerce to zero).
+ * - Date utilities operate in UTC regardless of local timezone offsets.
+ *
+ * Expected Outcomes & Rationale:
+ * - Known currency formats convert to expected cent values while malformed values return zero to prevent NaN
+ *   propagation.
+ * - Integer parsing strips formatting and truncates floats, providing consistent numeric conversion for usage
+ *   metrics.
+ * - UTC helpers output ISO strings anchored to midnight/hour boundaries to ensure downstream reporting uses
+ *   consistent timestamps.
+ */
 import { describe, it, expect } from 'vitest';
 import { parseCurrencyToCents, parseIntSafe, toUtcMidnight, truncateToHour } from './index';
 
@@ -66,5 +84,6 @@ describe('UTC helpers', () => {
     expect(t.toISOString()).toBe('2025-06-01T10:00:00.000Z');
   });
 });
+
 
 
