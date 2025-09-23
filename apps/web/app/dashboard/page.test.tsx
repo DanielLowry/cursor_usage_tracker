@@ -15,14 +15,18 @@
  *   upstream failures and maintaining predictable UX.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import DashboardPage from './page';
+
+function getTestIdValue(html: string, testId: string) {
+  const match = html.match(new RegExp(`data-testid="${testId}">(.*?)<`));
+  return match ? match[1] : null;
+}
 
 describe('DashboardPage', () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
-    cleanup();
     vi.restoreAllMocks();
     global.fetch = originalFetch as never;
   });
@@ -34,21 +38,21 @@ describe('DashboardPage', () => {
     } as never);
 
     const ui = await DashboardPage();
-    render(ui as unknown as JSX.Element);
+    const html = renderToStaticMarkup(ui as JSX.Element);
 
-    expect(screen.getByTestId('snapshot-count').textContent).toBe('3');
-    expect(screen.getByTestId('usage-event-count').textContent).toBe('7');
-    expect(screen.getByTestId('last-snapshot-at').textContent).toBe('2025-02-15T10:00:00.000Z');
+    expect(getTestIdValue(html, 'snapshot-count')).toBe('3');
+    expect(getTestIdValue(html, 'usage-event-count')).toBe('7');
+    expect(getTestIdValue(html, 'last-snapshot-at')).toBe('2025-02-15T10:00:00.000Z');
   });
 
   it('renders fallback values if API fails', async () => {
     vi.spyOn(global, 'fetch' as never).mockRejectedValue(new Error('network'));
 
     const ui = await DashboardPage();
-    render(ui as unknown as JSX.Element);
+    const html = renderToStaticMarkup(ui as JSX.Element);
 
-    expect(screen.getByTestId('snapshot-count').textContent).toBe('0');
-    expect(screen.getByTestId('usage-event-count').textContent).toBe('0');
-    expect(screen.getByTestId('last-snapshot-at').textContent).toBe('—');
+    expect(getTestIdValue(html, 'snapshot-count')).toBe('0');
+    expect(getTestIdValue(html, 'usage-event-count')).toBe('0');
+    expect(getTestIdValue(html, 'last-snapshot-at')).toBe('—');
   });
 });

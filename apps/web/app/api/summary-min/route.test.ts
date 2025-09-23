@@ -28,6 +28,7 @@ const BASE_DB_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@
 async function importClients() {
   // Point Prisma to our isolated schema
   process.env.DATABASE_URL = `${BASE_DB_URL}?schema=${TEST_SCHEMA}`;
+  delete (globalThis as { __cursor_usage_db_prisma__?: unknown }).__cursor_usage_db_prisma__;
   // Ensure fresh module import with new env
   vi.resetModules();
   ({ prisma } = await import('@cursor-usage/db'));
@@ -43,6 +44,8 @@ async function reset() {
 describe('/api/summary-min', () => {
   beforeAll(async () => {
     // Use the default/public prisma to prepare an isolated schema by cloning tables
+    process.env.DATABASE_URL = BASE_DB_URL;
+    delete (globalThis as { __cursor_usage_db_prisma__?: unknown }).__cursor_usage_db_prisma__;
     const { prisma: publicPrisma } = await import('@cursor-usage/db');
     await publicPrisma.$connect();
     // Create dedicated schema and copy table structures from public

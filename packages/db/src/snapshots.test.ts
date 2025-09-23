@@ -131,17 +131,11 @@ describe('snapshotting with change detection', () => {
     };
 
     // Create first snapshot
-    await createSnapshotIfChanged({ payload, capturedAt, rawBlobId: null });
+    const result = await createSnapshotIfChanged({ payload, capturedAt, rawBlobId: null });
+    expect(result.snapshotId).toBeTruthy();
+    const firstSnapshot = await prisma.snapshot.findUniqueOrThrow({ where: { id: result.snapshotId! } });
 
     // Try to manually insert duplicate (should fail)
-    const snapshots = await prisma.snapshot.findMany({
-      where: {
-        billing_period_start: new Date('2025-02-01'),
-        billing_period_end: new Date('2025-02-28'),
-      },
-    });
-    const firstSnapshot = snapshots[0];
-    
     await expect(
       prisma.snapshot.create({
         data: {
