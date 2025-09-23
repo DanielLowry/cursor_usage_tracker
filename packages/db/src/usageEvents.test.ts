@@ -1,3 +1,16 @@
+/**
+ * Test Purpose:
+ * - Ensures the network JSON ingestion pipeline writes normalized usage events to the database and associates
+ *   them with the originating raw blob record.
+ *
+ * Assumptions:
+ * - The Prisma client can connect to the test database and truncate tables for isolation.
+ * - `insertUsageEventsFromNetworkJson` returns a summary including the number of inserted rows.
+ *
+ * Expected Outcomes & Rationale:
+ * - After ingestion, exactly one usage event row exists and references the created `raw_blob` ID, confirming
+ *   that relationships and normalization behave as expected for downstream analytics.
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import prisma from './client';
 import { insertUsageEventsFromNetworkJson } from './usageEvents';

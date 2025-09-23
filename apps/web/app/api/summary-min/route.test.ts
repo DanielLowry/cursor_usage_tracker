@@ -1,3 +1,20 @@
+/**
+ * Test Suite Overview:
+ * - Validates the `/api/summary-min` route against an isolated Postgres schema to ensure counts and timestamps
+ *   returned to the dashboard match the data stored in snapshots, usage events, and budgets tables.
+ * - Covers both the populated and empty-database cases to guarantee predictable API responses for callers.
+ *
+ * Assumptions:
+ * - Tests can create a schema-scoped DATABASE_URL so Prisma models operate on isolated tables without
+ *   interfering with concurrent test runs.
+ * - The route handler reads directly from Prisma without requiring request context beyond environment config.
+ *
+ * Expected Outcomes & Rationale:
+ * - When seeding representative data, the route should return the seeded counts and last snapshot timestamp,
+ *   demonstrating correct aggregation queries.
+ * - With no data present, the route must return zeros and `null` to ensure the UI can safely display defaults
+ *   instead of throwing or showing stale values.
+ */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 
 // NOTE: We avoid importing the route or prisma at module top-level so we can
@@ -11,6 +28,7 @@ const BASE_DB_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@
 async function importClients() {
   // Point Prisma to our isolated schema
   process.env.DATABASE_URL = `${BASE_DB_URL}?schema=${TEST_SCHEMA}`;
+  delete (globalThis as { __cursor_usage_db_prisma__?: unknown }).__cursor_usage_db_prisma__;
   // Ensure fresh module import with new env
   vi.resetModules();
   ({ prisma } = await import('@cursor-usage/db'));
@@ -26,6 +44,8 @@ async function reset() {
 describe('/api/summary-min', () => {
   beforeAll(async () => {
     // Use the default/public prisma to prepare an isolated schema by cloning tables
+    process.env.DATABASE_URL = BASE_DB_URL;
+    delete (globalThis as { __cursor_usage_db_prisma__?: unknown }).__cursor_usage_db_prisma__;
     const { prisma: publicPrisma } = await import('@cursor-usage/db');
     await publicPrisma.$connect();
     // Create dedicated schema and copy table structures from public

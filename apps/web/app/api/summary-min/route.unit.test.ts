@@ -1,3 +1,21 @@
+/**
+ * Test Suite Overview:
+ * - Unit-tests the summary API handler by mocking Prisma responses to simulate populated data, empty tables,
+ *   and failure conditions.
+ *
+ * Assumptions:
+ * - The handler reads counts and the most recent snapshot timestamp directly from Prisma and wraps results in
+ *   a JSON response with HTTP status metadata.
+ * - Vitest's module mocking can replace the Prisma client with stubbed methods returning promises.
+ *
+ * Expected Outcomes & Rationale:
+ * - When counts are provided, the response should mirror those values to confirm the handler formats data
+ *   correctly.
+ * - With zero counts, the handler should emit null/zero defaults, keeping the contract consistent with the
+ *   integration test expectations.
+ * - If any Prisma call rejects, the handler must catch the error and return a 500 status with an error payload
+ *   so clients can surface the failure without leaking stack traces.
+ */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { GET } from './route';
 import { prisma } from '@cursor-usage/db';

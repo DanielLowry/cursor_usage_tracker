@@ -1,3 +1,17 @@
+/**
+ * Test Purpose:
+ * - Validates that the scrape worker stores captured network fixtures as gzipped `raw_blob` records and enforces
+ *   the retention policy to keep only the newest N entries.
+ *
+ * Assumptions:
+ * - Prisma can connect to the test database and truncate the `raw_blobs` table between runs.
+ * - `ingestFixtures` returns a summary containing the number of saved payloads and applies the retention cap.
+ *
+ * Expected Outcome & Rationale:
+ * - All five fixtures are written initially (`savedCount` = 5) and only the newest three remain after trimming,
+ *   confirming both persistence and retention behavior. Each stored blob must be tagged as `network_json` with
+ *   non-empty payload buffers to emulate real captures.
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import prisma from '../../../../packages/db/src/client';
 import { ingestFixtures } from './scrape';
@@ -35,5 +49,6 @@ describe('network capture → raw_blobs (fixtures)', () => {
     }
   });
 });
+
 
 

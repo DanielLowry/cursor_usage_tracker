@@ -1,3 +1,17 @@
+/**
+ * Test Purpose:
+ * - Exercises the full scrape-to-ingest pipeline by saving fixture payloads as raw blobs, decompressing them,
+ *   and feeding the results through snapshot creation to produce usage events.
+ *
+ * Assumptions:
+ * - Prisma can truncate and repopulate the relevant tables (`raw_blobs`, `snapshots`, `usage_events`).
+ * - `ingestFixtures` gzips payloads, and `createSnapshotIfChanged` both persists snapshots and inserts usage
+ *   events tied back to the originating raw blob.
+ *
+ * Expected Outcome & Rationale:
+ * - After running the pipeline, exactly one blob, snapshot, and usage event should exist, all linked together,
+ *   demonstrating the integration between scraping, normalization, and persistence layers.
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import prisma from '../../../../packages/db/src/client';
 import { ingestFixtures } from './scrape';
@@ -47,5 +61,6 @@ describe('scrape integration: insert usage events from captured JSON', () => {
     expect(snapshots[0].rows_count).toBe(1);
   });
 });
+
 
 

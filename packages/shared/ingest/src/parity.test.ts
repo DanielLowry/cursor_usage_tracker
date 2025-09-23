@@ -1,3 +1,17 @@
+/**
+ * Test Purpose:
+ * - Performs a parity check between normalized rows generated from the network JSON payload and a canonical
+ *   DOM-derived normalization fixture to ensure both ingestion paths stay aligned.
+ *
+ * Assumptions:
+ * - Fixture files exist under `tests/fixtures` and represent equivalent source data captured at the same time.
+ * - `mapNetworkJson` returns rows containing token counts and cost fields that can be compared directly to the
+ *   DOM-normalized snapshot.
+ *
+ * Expected Outcome & Rationale:
+ * - The mapped output strictly equals the DOM-normalized fixture, confirming that both ingestion pipelines
+ *   produce identical normalized data to prevent downstream drift.
+ */
 import { describe, it, expect } from 'vitest';
 import { mapNetworkJson } from './mapNetworkJson';
 import * as fs from 'fs';
@@ -26,5 +40,6 @@ describe('JSON vs DOM parity (early)', () => {
     expect(mapped).toStrictEqual(domNormalized);
   });
 });
+
 
 
