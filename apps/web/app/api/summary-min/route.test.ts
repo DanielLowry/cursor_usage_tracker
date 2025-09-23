@@ -1,6 +1,21 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { GET } from './route';
-import { prisma } from '@cursor-usage/db';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+
+// NOTE: We avoid importing the route or prisma at module top-level so we can
+// set DATABASE_URL to a test-specific schema before the client initializes.
+let GET: typeof import('./route').GET;
+let prisma: typeof import('@cursor-usage/db').prisma;
+
+const TEST_SCHEMA = `summary_min_${process.pid}_${Date.now()}`;
+const BASE_DB_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker';
+
+async function importClients() {
+  // Point Prisma to our isolated schema
+  process.env.DATABASE_URL = `${BASE_DB_URL}?schema=${TEST_SCHEMA}`;
+  // Ensure fresh module import with new env
+  vi.resetModules();
+  ({ prisma } = await import('@cursor-usage/db'));
+  ({ GET } = await import('./route'));
+}
 
 async function reset() {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE usage_events RESTART IDENTITY CASCADE');
@@ -10,6 +25,18 @@ async function reset() {
 
 describe('/api/summary-min', () => {
   beforeAll(async () => {
+    // Use the default/public prisma to prepare an isolated schema by cloning tables
+    const { prisma: publicPrisma } = await import('@cursor-usage/db');
+    await publicPrisma.$connect();
+    // Create dedicated schema and copy table structures from public
+    await publicPrisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${TEST_SCHEMA}"`);
+    await publicPrisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "${TEST_SCHEMA}".snapshots (LIKE public.snapshots INCLUDING ALL)`);
+    await publicPrisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "${TEST_SCHEMA}".usage_events (LIKE public.usage_events INCLUDING ALL)`);
+    await publicPrisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "${TEST_SCHEMA}".budgets (LIKE public.budgets INCLUDING ALL)`);
+    await publicPrisma.$disconnect();
+
+    // Now import prisma and route bound to the isolated schema
+    await importClients();
     await prisma.$connect();
   });
 
@@ -18,9 +45,11 @@ describe('/api/summary-min', () => {
     await prisma.$disconnect();
   });
 
-  it('returns correct shape and values', async () => {
+  beforeEach(async () => {
     await reset();
+  });
 
+  it('returns correct shape and values', async () => {
     // Seed some test data
     await prisma.budget.create({
       data: { effective_budget_cents: 5000 },
@@ -84,8 +113,6 @@ describe('/api/summary-min', () => {
   });
 
   it('returns zero counts when no data exists', async () => {
-    await reset();
-
     const response = await GET();
     const data = await response.json();
 
