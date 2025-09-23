@@ -1,3 +1,16 @@
+/**
+ * Test Purpose:
+ * - Smoke-tests the BullMQ scrape queue integration by enqueueing a dummy job and verifying it is processed to
+ *   completion using the shared Redis connection.
+ *
+ * Assumptions:
+ * - A Redis instance is reachable via `REDIS_URL`; otherwise the suite is skipped to avoid spurious failures.
+ * - `getScrapeQueue` and `getRedis` expose shared singletons that can be reused across worker and events.
+ *
+ * Expected Outcome & Rationale:
+ * - The job resolves with the echoed data, confirming that queue registration, worker processing, and event
+ *   listeners are wired correctly and that the infrastructure is functioning end-to-end.
+ */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { QueueEvents, Worker, Job } from "bullmq";
 import { getScrapeQueue } from "./index";
@@ -40,5 +53,6 @@ d("scrape queue", () => {
     expect(result.data.reason).toBe("test");
   });
 });
+
 
 

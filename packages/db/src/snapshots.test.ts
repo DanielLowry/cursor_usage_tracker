@@ -1,3 +1,30 @@
+/**
+ * Test Suite Overview:
+ * - Validates snapshot deduplication: re-ingesting identical payloads within the same billing period
+ *   should reuse the original snapshot rather than writing a duplicate record.
+ * - Confirms change detection: when the payload changes, a new snapshot with a different hash and
+ *   captured_at timestamp is created while both snapshots remain queryable.
+ * - Enforces database uniqueness: attempts to manually insert duplicate snapshot metadata must be
+ *   rejected by the database layer so callers cannot bypass change detection safeguards.
+ * - Exercises realistic fixture processing: ensures data read from the network fixture generates a
+ *   new snapshot that ties to the correct billing period and produces the expected number of usage events.
+ *
+ * Assumptions:
+ * - The Prisma client can connect to the test database and the snapshot-related tables can be truncated
+ *   between tests to guarantee isolation.
+ * - `createSnapshotIfChanged` records usage events and snapshots transactionally and returns identifiers
+ *   for any newly created rows.
+ *
+ * Expected Outcomes & Rationale:
+ * - Replaying identical data returns `wasNew === false` on the second invocation because the table hash
+ *   is unchanged, demonstrating idempotence for duplicate reports.
+ * - Mutated payloads result in `wasNew === true` and produce two stored snapshots whose hashes differ,
+ *   proving that change detection is sensitive to row-level mutations.
+ * - Manually inserting a snapshot with matching unique fields throws, verifying that database constraints
+ *   enforce invariants even if application logic is bypassed.
+ * - The fixture-driven test expects two usage events and accurate billing-period metadata because the
+ *   fixture includes two rows covering that period, confirming the parser populates snapshot metadata.
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import prisma from './client';
 import { createSnapshotIfChanged } from './snapshots';

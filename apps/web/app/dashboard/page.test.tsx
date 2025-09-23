@@ -1,3 +1,19 @@
+/**
+ * Test Suite Overview:
+ * - Exercises the dashboard server component to confirm it renders API-derived statistics and handles error
+ *   scenarios by showing sensible defaults.
+ *
+ * Assumptions:
+ * - The page component fetches summary data via the global `fetch` API and renders values inside elements with
+ *   stable `data-testid` attributes.
+ * - Tests can mock `global.fetch` and await the async component before rendering its JSX snapshot.
+ *
+ * Expected Outcomes & Rationale:
+ * - When the API returns data, the UI should display the provided counts and timestamp, proving the component
+ *   parses and binds the JSON response correctly.
+ * - When the fetch call rejects, the UI should fallback to zeros and an em dash, demonstrating resilience to
+ *   upstream failures and maintaining predictable UX.
+ */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import DashboardPage from './page';

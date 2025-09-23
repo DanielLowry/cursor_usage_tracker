@@ -1,3 +1,18 @@
+/**
+ * Test Purpose:
+ * - Ensures the `trimRawBlobs` retention routine deletes the oldest raw blob records while keeping the most
+ *   recent N entries, preserving chronological order.
+ *
+ * Assumptions:
+ * - The test database can be connected to and truncated between runs to provide a clean slate.
+ * - `trimRawBlobs` performs deletions based on the `captured_at` timestamp field.
+ *
+ * Expected Outcomes & Rationale:
+ * - Seeding 30 blobs and trimming to 20 should delete 10 rows, leaving the 20 newest records.
+ * - The `count` query should report 20 remaining entries to confirm the deletion total.
+ * - The newest record after trimming must match the latest seed timestamp, while the oldest retained record
+ *   should align with the 20th newest seed, proving ordering logic is correct.
+ */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import prisma from './client';
 import { trimRawBlobs } from './retention';
@@ -21,7 +36,7 @@ describe('trimRawBlobs', () => {
     // Seed ~30 blobs with 1-minute increments
     const base = new Date('2025-01-01T00:00:00.000Z').getTime();
     const total = 30;
-    const created = await prisma.$transaction(
+    await prisma.$transaction(
       Array.from({ length: total }, (_, i) =>
         prisma.rawBlob.create({
           data: {

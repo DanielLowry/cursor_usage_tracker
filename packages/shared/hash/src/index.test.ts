@@ -1,3 +1,21 @@
+/**
+ * Test Suite Overview:
+ * - Validates deterministic canonicalization and hashing so that semantically equivalent objects produce the
+ *   same hash while actual data mutations do not.
+ * - Exercises `shouldWriteSnapshot` decision logic for when to persist a new snapshot based on previous and
+ *   next hashes.
+ *
+ * Assumptions:
+ * - `canonicalize` sorts object keys recursively and orders arrays by their canonical JSON representations.
+ * - `stableHash` consumes the canonicalized value to produce consistent output across runs.
+ *
+ * Expected Outcomes & Rationale:
+ * - Equivalent objects with different key or array orderings hash identically, preventing redundant snapshots
+ *   for the same logical data.
+ * - Different values yield different hashes to ensure real changes trigger persistence.
+ * - `shouldWriteSnapshot` returns true only when appropriate (first write or changed hash) so the application
+ *   avoids unnecessary database writes.
+ */
 import { describe, it, expect } from 'vitest';
 import { canonicalize, stableHash, shouldWriteSnapshot } from './index';
 
@@ -45,5 +63,6 @@ describe('shouldWriteSnapshot', () => {
     expect(shouldWriteSnapshot('same', 'same')).toBe(false);
   });
 });
+
 
 
