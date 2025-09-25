@@ -10,6 +10,7 @@ import { z } from 'zod';
 import * as zlib from 'zlib';
 // filesystem helper used to read temporary download files from Playwright
 import * as fs from 'fs';
+import * as path from 'path';
 
 // Expected environment variables and basic validation/transforms
 const envSchema = z.object({
@@ -71,83 +72,82 @@ export async function runScrape(): Promise<ScrapeResult> {
     console.log('runScrape: launched browser persistent context');
     const page = await context.newPage();
 
-    // Listen for network responses and capture JSON payloads that look like usage/billing data
-    // This is the primary (historically reliable) method because Cursor previously returned JSON
-    page.on('response', async (response) => {
+    // Surface page console logs and errors to help diagnose failures
+    page.on('console', (msg) => {
       try {
-        const url = response.url();
-        if (!isRelevant(url)) return; // skip irrelevant endpoints
-        const ct = response.headers()['content-type'] || '';
-        if (!ct.includes('application/json')) return; // only JSON bodies
-        const body = await response.body();
-        try {
-          // quick sanity check that it's valid JSON before storing
-          JSON.parse(body.toString('utf8'));
-        } catch {
-          return;
-        }
-        captured.push({ url, payload: Buffer.from(body) });
-      } catch {
-        // ignore individual response errors to keep scraping resilient
-      }
+        console.log('page console:', msg.type(), msg.text());
+      } catch {}
     });
+    page.on('pageerror', (err) => {
+      console.error('page error:', err);
+    });
+
+    // NOTE: We intentionally do NOT capture network JSON as a fallback.
+    // The authoritative data source is the CSV export button; any other capture method
+    // is considered an error per user instruction.
 
     // Navigate to the usage page. We wait for DOMContentLoaded but do not block indefinitely on networkidle
     await page.goto(env.CURSOR_USAGE_URL, { waitUntil: 'domcontentloaded' });
+    // Give the app a moment to render client-side UI before querying for the button
+    await page.waitForTimeout(1000);
     console.log('runScrape: page loaded, listener active');
 
-    // Prefer CSV export path if the UI provides it. Try direct CSV links first, then export buttons.
+    // We must use the Export CSV button exclusively. Locate the specific button
+    // using multiple robust selector strategies and wait for it to become visible.
     try {
-      // look for anchor links pointing to .csv or anchors with text suggesting an export
-      const csvAnchor = await page.$('a[href$=".csv"], a[href*=".csv?"], a:has-text("Export CSV"), a:has-text("Download CSV")');
-      if (csvAnchor) {
-        // If a direct CSV link exists, click it and wait for the download event
-        console.log('runScrape: found csv anchor, initiating download');
-        const [download] = await Promise.all([
-          page.waitForEvent('download', { timeout: 30000 }),
-          csvAnchor.click(),
-        ]);
-        const tmpPath = await download.path();
-        if (tmpPath) {
-          const buf = await fs.promises.readFile(tmpPath);
-          captured.push({ url: download.url(), payload: Buffer.from(buf) });
-        } else {
-          console.warn('runScrape: download path empty for csv anchor');
-        }
-      } else {
-        // Otherwise try an Export button which may trigger a download or cause a CSV network response
-        // Use sequential selectors to avoid mixing CSS and Playwright text selectors in one string
-        let exportButton = await page.$('button:has-text("Export")');
-        if (!exportButton) exportButton = await page.$('button:has-text("Export CSV")');
-        if (!exportButton) exportButton = await page.$('text=Export CSV');
-        if (exportButton) {
-          console.log('runScrape: found export button, clicking and waiting for download/response');
-          const clickPromise = exportButton.click();
-          const downloadPromise = page.waitForEvent('download', { timeout: 30000 }).catch(() => null);
-          const responsePromise = page.waitForResponse((resp) => {
-            const ct = (resp.headers()['content-type'] || '').toLowerCase();
-            return ct.includes('text/csv') || resp.url().toLowerCase().endsWith('.csv');
-          }, { timeout: 30000 }).catch(() => null);
-          const [download, response] = await Promise.all([downloadPromise, responsePromise, clickPromise]);
-          if (download) {
-            const tmpPath = await download.path();
-            if (tmpPath) {
-              const buf = await fs.promises.readFile(tmpPath);
-              captured.push({ url: download.url(), payload: Buffer.from(buf) });
-            }
-          } else if (response) {
-            const body = await response.body();
-            captured.push({ url: response.url(), payload: Buffer.from(body) });
-          } else {
-            console.log('runScrape: export click did not produce a download or CSV response within timeout');
+      // Try several selectors in order of robustness
+      const candidateSelectors = [
+        'role=button[name="Export CSV"]',
+        'button:has-text("Export CSV")',
+        'button.dashboard-outline-button:has(.dashboard-outline-button-text:has-text("Export CSV"))',
+        'text=Export CSV >> xpath=ancestor::button[1]'
+      ];
+
+      let exportButton: import('playwright').ElementHandle<Element> | null = null;
+      for (const sel of candidateSelectors) {
+        try {
+          const handle = await page.waitForSelector(sel as any, { state: 'visible', timeout: 10000 });
+          if (handle) {
+            exportButton = handle as any;
+            console.log('runScrape: export button found via selector', sel);
+            break;
           }
-        } else {
-          console.log('runScrape: no CSV anchor or export button found; relying on network JSON capture');
+        } catch {
+          // try next selector
         }
       }
+      if (!exportButton) {
+        // Dump diagnostics to help identify why the selector failed
+        const debugDir = path.resolve('./data/debug');
+        await fs.promises.mkdir(debugDir, { recursive: true }).catch(() => {});
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        const screenshotPath = path.join(debugDir, `usage_${ts}.png`);
+        const htmlPath = path.join(debugDir, `usage_${ts}.html`);
+        try {
+          await page.screenshot({ path: screenshotPath, fullPage: true });
+        } catch {}
+        try {
+          const html = await page.content();
+          await fs.promises.writeFile(htmlPath, html);
+        } catch {}
+        const pageUrl = page.url();
+        const title = await page.title().catch(() => '');
+        throw new Error(`export button not found (url=${pageUrl}, title=${title}, screenshot=${screenshotPath}, html=${htmlPath})`);
+      }
+
+      console.log('runScrape: found export button, clicking and waiting for download');
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 30000 }),
+        exportButton.click(),
+      ]);
+      const tmpPath = await download.path();
+      if (!tmpPath) throw new Error('download produced no temp path');
+      const buf = await fs.promises.readFile(tmpPath);
+      captured.push({ url: download.url(), payload: Buffer.from(buf) });
+      console.log('runScrape: csv downloaded from', download.url());
     } catch (err) {
-      // CSV attempt failed; log and continue so network JSON capture can still work
-      console.warn('runScrape: csv download attempt failed', err);
+      // Fail fast: any inability to find/download via Export CSV is considered an error
+      throw new Error(`csv download attempt failed: ${String(err)}`);
     }
   } finally {
     if (context) await context.close();
