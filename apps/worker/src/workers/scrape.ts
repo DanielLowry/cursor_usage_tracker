@@ -116,7 +116,10 @@ export async function runScrape(): Promise<ScrapeResult> {
         }
       } else {
         // Otherwise try an Export button which may trigger a download or cause a CSV network response
-        const exportButton = await page.$('button:has-text("Export"), button:has-text("Export CSV"), text=Export CSV');
+        // Use sequential selectors to avoid mixing CSS and Playwright text selectors in one string
+        let exportButton = await page.$('button:has-text("Export")');
+        if (!exportButton) exportButton = await page.$('button:has-text("Export CSV")');
+        if (!exportButton) exportButton = await page.$('text=Export CSV');
         if (exportButton) {
           console.log('runScrape: found export button, clicking and waiting for download/response');
           const clickPromise = exportButton.click();
