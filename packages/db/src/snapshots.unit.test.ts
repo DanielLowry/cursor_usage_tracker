@@ -1,3 +1,20 @@
+/**
+ * Test Suite Overview:
+ * - Verifies that the change-detection hashing strategy yields identical hashes when payloads are identical
+ *   after normalization and diverges whenever the source data or billing period meaningfully differs.
+ * - Ensures ordering of rows does not influence the hash by constructing permutations with the same content.
+ *
+ * Assumptions:
+ * - `mapNetworkJson` produces deterministic event objects for the same payload and timestamp.
+ * - `buildStableView` generates a canonical representation that feeds into `stableHash` and is included in the
+ *   snapshot pipeline.
+ *
+ * Expected Outcomes & Rationale:
+ * - Equal payloads map to the same hash, validating idempotent snapshot creation.
+ * - Any change in metrics or billing period updates the hash, signalling that new snapshots should be stored.
+ * - Reordered rows maintain hash equality, demonstrating that normalization removes ordering effects so users
+ *   cannot accidentally trigger spurious diffs.
+ */
 import { describe, it, expect } from 'vitest';
 import { stableHash } from '@cursor-usage/hash';
 import { mapNetworkJson } from '@cursor-usage/ingest';
