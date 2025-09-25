@@ -7,7 +7,7 @@ import * as zlib from 'zlib';
 
 const envSchema = z.object({
   PLAYWRIGHT_USER_DATA_DIR: z.string().min(1),
-  CURSOR_USAGE_URL: z.string().url().default('https://cursor.sh/account/usage'),
+  CURSOR_USAGE_URL: z.string().url().default('https://cursor.com/dashboard?tab=usage'),
   RAW_BLOB_KEEP_N: z
     .string()
     .optional()
