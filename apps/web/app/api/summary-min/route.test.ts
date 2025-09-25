@@ -50,6 +50,18 @@ describe('/api/summary-min', () => {
     await publicPrisma.$connect();
     // Create dedicated schema and copy table structures from public
     await publicPrisma.$executeRawUnsafe(`CREATE SCHEMA IF NOT EXISTS "${TEST_SCHEMA}"`);
+    const enumNames = ['data_source', 'blob_kind', 'alert_kind'];
+    for (const enumName of enumNames) {
+      const rows = await publicPrisma.$queryRawUnsafe<{ enumlabel: string }[]>(
+        `SELECT enumlabel FROM pg_enum JOIN pg_type ON pg_enum.enumtypid = pg_type.oid WHERE pg_type.typname = '${enumName}' ORDER BY enumsortorder`,
+      );
+      const enumLabels = rows.map(({ enumlabel }) => `'${enumlabel.replace(/'/g, "''")}'`).join(', ');
+      if (enumLabels.length > 0) {
+        await publicPrisma.$executeRawUnsafe(
+          `CREATE TYPE IF NOT EXISTS "${TEST_SCHEMA}".${enumName} AS ENUM (${enumLabels})`,
+        );
+      }
+    }
     await publicPrisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "${TEST_SCHEMA}".snapshots (LIKE public.snapshots INCLUDING ALL)`);
     await publicPrisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "${TEST_SCHEMA}".usage_events (LIKE public.usage_events INCLUDING ALL)`);
     await publicPrisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "${TEST_SCHEMA}".budgets (LIKE public.budgets INCLUDING ALL)`);
