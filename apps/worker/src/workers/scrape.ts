@@ -36,6 +36,7 @@ export async function runScrape(): Promise<ScrapeResult> {
     throw new Error(`Invalid env: ${parsed.error.message}`);
   }
   const env = parsed.data as { PLAYWRIGHT_USER_DATA_DIR: string; CURSOR_USAGE_URL: string; RAW_BLOB_KEEP_N: number };
+  console.log('runScrape: env', { CURSOR_USAGE_URL: env.CURSOR_USAGE_URL, PLAYWRIGHT_USER_DATA_DIR: env.PLAYWRIGHT_USER_DATA_DIR });
 
   let context: BrowserContext | null = null;
   const captured: Array<{ url?: string; payload: Buffer }> = [];
@@ -44,6 +45,7 @@ export async function runScrape(): Promise<ScrapeResult> {
     context = await chromium.launchPersistentContext(env.PLAYWRIGHT_USER_DATA_DIR, {
       headless: true,
     });
+    console.log('runScrape: launched browser persistent context');
     const page = await context.newPage();
 
     page.on('response', async (response) => {
@@ -66,12 +68,14 @@ export async function runScrape(): Promise<ScrapeResult> {
 
     await page.goto(env.CURSOR_USAGE_URL, { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle');
+    console.log('runScrape: page loaded, listener active');
   } finally {
     if (context) await context.close();
   }
 
   let saved = 0;
   const now = new Date();
+  console.log('runScrape: captured count=', captured.length);
   for (const item of captured) {
     const gz = await gzipBuffer(item.payload);
     const blob = await prisma.rawBlob.create({
@@ -91,6 +95,7 @@ export async function runScrape(): Promise<ScrapeResult> {
       // ignore JSON parse errors here; raw blob already saved
     }
     saved += 1;
+    console.log('runScrape: saved one blob, id=', blob.id);
   }
 
   await trimRawBlobs(env.RAW_BLOB_KEEP_N);
@@ -118,3 +123,28 @@ export async function ingestFixtures(fixtures: Array<{ url?: string; json: unkno
 }
 
 
+// Lightweight CLI wrapper so this module actually runs when executed directly
+async function _runCli() {
+  try {
+    console.log('scrape: starting');
+    const res = await runScrape();
+    console.log('scrape: finished', { result: res });
+    process.exit(0);
+  } catch (err) {
+    console.error('scrape: error', err);
+    process.exit(2);
+  }
+}
+
+// Heuristic: when executed via `tsx src/workers/scrape.ts`, process.argv[1] will be the script path.
+// Use a safe basename check to avoid using `import.meta` which may be disallowed by tsconfig.
+const _invokedDirectly = (() => {
+  const entry = process.argv[1] || '';
+  const parts = entry.split(/[\\/]/);
+  const name = parts[parts.length - 1] || '';
+  return name === 'scrape.ts' || name === 'scrape.js';
+})();
+
+if (_invokedDirectly) {
+  void _runCli();
+}
