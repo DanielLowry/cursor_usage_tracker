@@ -21,14 +21,21 @@ export async function GET() {
     const env = parsed.data;
     const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
 
-    // First check the stored state
+    // First check the stored state - but only trust it if it's very recent (within 5 minutes)
+    // and only if it was verified by a successful live check
     const storedState = await authManager.loadState();
     if (storedState?.isAuthenticated && !(await authManager.isSessionExpired())) {
-      return NextResponse.json({
-        isAuthenticated: true,
-        lastChecked: storedState.lastChecked,
-        source: 'stored_state'
-      });
+      const lastChecked = new Date(storedState.lastChecked);
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+      
+      // Only trust stored state if it's very recent (5 minutes) and was from a successful live check
+      if (lastChecked > fiveMinutesAgo && storedState.source === 'live_check' && !storedState.error) {
+        return NextResponse.json({
+          isAuthenticated: true,
+          lastChecked: storedState.lastChecked,
+          source: 'stored_state'
+        });
+      }
     }
 
     // If no valid stored state, do a live check
@@ -48,18 +55,58 @@ export async function GET() {
         timeout: 10000 
       });
 
-      // Check if we're still on the dashboard (not redirected to login)
+      // Check if we can actually access the usage data
       const currentUrl = page.url();
-      const isAuthenticated = !currentUrl.includes('login') && !currentUrl.includes('auth') && !currentUrl.includes('authenticator.cursor.sh');
+      
+      // Wait for the page to load and check for usage data or login redirect
+      await page.waitForTimeout(3000); // Give time for the dashboard to load
+      
+      // Check if we're redirected to login
+      const isRedirectedToLogin = currentUrl.includes('login') || 
+                                 currentUrl.includes('auth') || 
+                                 currentUrl.includes('authenticator.cursor.sh');
+      
+      // If not redirected, check if we can see usage data (not just the loading screen)
+      let hasUsageData = false;
+      if (!isRedirectedToLogin) {
+        try {
+          // Look for usage-related elements that would indicate we're actually logged in
+          // and can see the dashboard content
+          const usageElements = await page.locator('[data-testid*="usage"], .usage, [class*="usage"], [id*="usage"]').count();
+          const hasDashboardContent = await page.locator('text=Loading Dashboard').count() === 0;
+          const hasUserInfo = await page.locator('text=@').count() > 0; // Look for email indicator
+          
+          hasUsageData = usageElements > 0 || (hasDashboardContent && hasUserInfo);
+        } catch (error) {
+          console.warn('Error checking for usage data:', error);
+        }
+      }
+      
+      const isAuthenticated = !isRedirectedToLogin && hasUsageData;
 
-      // Update stored state
-      await authManager.updateAuthStatus(isAuthenticated, isAuthenticated ? undefined : 'Redirected to login - session may have expired');
+      // Update stored state with source information
+      const errorMessage = isAuthenticated ? undefined : 
+        (isRedirectedToLogin ? 'Redirected to login - session expired' : 'Cannot access usage data - not authenticated');
+      
+      // Save the full state including source
+      const currentState = await authManager.loadState();
+      const newState = {
+        isAuthenticated,
+        lastChecked: new Date().toISOString(),
+        source: 'live_check' as const,
+        sessionCookies: currentState?.sessionCookies,
+        userAgent: currentState?.userAgent,
+        lastLogin: currentState?.lastLogin,
+        expiresAt: currentState?.expiresAt,
+        ...(errorMessage && { error: errorMessage }),
+      };
+      await authManager.saveState(newState);
 
       return NextResponse.json({
         isAuthenticated,
         lastChecked: new Date().toISOString(),
         source: 'live_check',
-        ...(isAuthenticated ? {} : { error: 'Redirected to login - session may have expired' })
+        ...(isAuthenticated ? {} : { error: errorMessage })
       });
 
     } finally {

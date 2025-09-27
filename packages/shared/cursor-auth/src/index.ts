@@ -19,6 +19,8 @@ const CursorAuthStateSchema = z.object({
   userAgent: z.string().optional(),
   lastLogin: z.string().optional(),
   expiresAt: z.string().optional(),
+  source: z.enum(['stored_state', 'live_check']).optional(),
+  error: z.string().optional(),
 });
 
 export type CursorAuthState = z.infer<typeof CursorAuthStateSchema>;
