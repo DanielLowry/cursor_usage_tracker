@@ -10,7 +10,7 @@ export const scraperQueueEvents = new QueueEvents('scraper', { connection });
 export const startScraperWorker = (): Worker => {
   const worker = new Worker(
     'scraper',
-    async (job: Job) => {
+    async (_job: Job) => {
       const result = await runScrape();
       return result;
     },

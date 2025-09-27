@@ -39,11 +39,6 @@ function gzipBuffer(input: Buffer): Promise<Buffer> {
   });
 }
 
-// Heuristic to filter network responses to only those likely containing usage/billing JSON
-function isRelevant(url: string): boolean {
-  const u = url.toLowerCase();
-  return u.includes('usage') || u.includes('spend') || u.includes('billing');
-}
 
 // Main scrape routine.
 // - Validates environment
@@ -87,7 +82,9 @@ export async function runScrape(): Promise<ScrapeResult> {
         const type = msg.type();
         if (type !== 'error' && type !== 'warning') return;
         console.log('page console:', msg.type(), msg.text());
-      } catch {}
+      } catch {
+        // Ignore console errors
+      }
     });
     page.on('pageerror', (err) => {
       console.error('page error:', err);
@@ -96,10 +93,14 @@ export async function runScrape(): Promise<ScrapeResult> {
       const url = res.url();
       const status = res.status();
       if (/(usage|spend|billing)/i.test(url) || status >= 400) {
-        let ct = res.headers()['content-type'] || '';
+        const ct = res.headers()['content-type'] || '';
         console.log('resp', status, url, ct);
         if (ct.includes('application/json') && status < 400) {
-          try { console.log('json peek', (await res.json())?.slice?.(0,1)); } catch {}
+          try { 
+            console.log('json peek', (await res.json())?.slice?.(0,1)); 
+          } catch {
+            // Ignore JSON parse errors
+          }
         }
       }
     });
@@ -167,9 +168,9 @@ export async function runScrape(): Promise<ScrapeResult> {
       let exportButton: import('playwright').ElementHandle<Element> | null = null;
       for (const sel of candidateSelectors) {
         try {
-          const handle = await page.waitForSelector(sel as any, { state: 'visible', timeout: 10000 });
+          const handle = await page.waitForSelector(sel as string, { state: 'visible', timeout: 10000 });
           if (handle) {
-            exportButton = handle as any;
+            exportButton = handle as import('playwright').ElementHandle<Element>;
             console.log('runScrape: export button found via selector', sel);
             break;
           }
@@ -180,17 +181,23 @@ export async function runScrape(): Promise<ScrapeResult> {
       if (!exportButton) {
         // Dump diagnostics to help identify why the selector failed
         const debugDir = path.resolve('./data/debug');
-        await fs.promises.mkdir(debugDir, { recursive: true }).catch(() => {});
+        await fs.promises.mkdir(debugDir, { recursive: true }).catch(() => {
+          // Ignore directory creation errors
+        });
         const ts = new Date().toISOString().replace(/[:.]/g, '-');
         const screenshotPath = path.join(debugDir, `usage_${ts}.png`);
         const htmlPath = path.join(debugDir, `usage_${ts}.html`);
         try {
           await page.screenshot({ path: screenshotPath, fullPage: true });
-        } catch {}
+        } catch {
+          // Ignore screenshot errors
+        }
         try {
           const html = await page.content();
           await fs.promises.writeFile(htmlPath, html);
-        } catch {}
+        } catch {
+          // Ignore HTML save errors
+        }
         const pageUrl = page.url();
         const title = await page.title().catch(() => '');
         throw new Error(`export button not found (url=${pageUrl}, title=${title}, screenshot=${screenshotPath}, html=${htmlPath})`);
