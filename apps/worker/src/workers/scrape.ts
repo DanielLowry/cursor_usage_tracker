@@ -75,12 +75,29 @@ export async function runScrape(): Promise<ScrapeResult> {
     // Surface page console logs and errors to help diagnose failures
     page.on('console', (msg) => {
       try {
+        const type = msg.type();
+        if (type !== 'error' && type !== 'warning') return;
         console.log('page console:', msg.type(), msg.text());
       } catch {}
     });
     page.on('pageerror', (err) => {
       console.error('page error:', err);
     });
+    page.on('response', async (res) => {
+      const url = res.url();
+      const status = res.status();
+      if (/(usage|spend|billing)/i.test(url) || status >= 400) {
+        let ct = res.headers()['content-type'] || '';
+        console.log('resp', status, url, ct);
+        if (ct.includes('application/json') && status < 400) {
+          try { console.log('json peek', (await res.json())?.slice?.(0,1)); } catch {}
+        }
+      }
+    });
+    page.on('requestfailed', (req) => {
+      console.warn('request failed', req.failure()?.errorText, req.url());
+    });
+    
 
     // NOTE: We intentionally do NOT capture network JSON as a fallback.
     // The authoritative data source is the CSV export button; any other capture method
@@ -91,6 +108,37 @@ export async function runScrape(): Promise<ScrapeResult> {
     // Give the app a moment to render client-side UI before querying for the button
     await page.waitForTimeout(1000);
     console.log('runScrape: page loaded, listener active');
+
+    // Check if we're logged in by looking for login indicators or the export button
+    const isLoggedIn = await page.$('button:has-text("Export CSV")').then(() => true).catch(() => false);
+    if (!isLoggedIn) {
+      console.log('runScrape: not logged in, need to authenticate first');
+      // Try to navigate to login page - Cursor typically redirects to login when not authenticated
+      const currentUrl = page.url();
+      if (!currentUrl.includes('login') && !currentUrl.includes('auth') && !currentUrl.includes('authenticator.cursor.sh')) {
+        console.log('runScrape: redirecting to login page');
+        await page.goto('https://authenticator.cursor.sh/', { waitUntil: 'domcontentloaded' });
+        await page.waitForTimeout(2000);
+      }
+      
+      // Check if we're now on a login page
+      const loginIndicators = await Promise.all([
+        page.$('input[type="email"], input[name="email"]').then(() => true).catch(() => false),
+        page.$('button:has-text("Sign in"), button:has-text("Login")').then(() => true).catch(() => false),
+        page.$('form').then(() => true).catch(() => false)
+      ]);
+      
+      if (loginIndicators.some(Boolean)) {
+        // Check for Google OAuth button
+        const googleButton = await page.$('button:has-text("Google"), button:has-text("Sign in with Google"), [data-provider="google"], [aria-label*="Google"]').catch(() => null);
+        if (googleButton) {
+          console.log('runScrape: Google OAuth detected - this requires manual interaction');
+          throw new Error('Google OAuth login detected. Please run "pnpm onboard" to complete authentication manually, then retry scraping');
+        } else {
+          throw new Error('Authentication required: Please run "pnpm onboard" first to log in manually, then retry scraping');
+        }
+      }
+    }
 
     // We must use the Export CSV button exclusively. Locate the specific button
     // using multiple robust selector strategies and wait for it to become visible.

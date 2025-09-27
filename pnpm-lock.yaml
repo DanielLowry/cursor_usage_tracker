@@ -50,12 +50,18 @@ importers:
       next-auth:
         specifier: ^5.0.0-beta.5
         version: 5.0.0-beta.29(next@14.1.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      playwright:
+        specifier: ^1.42.0
+        version: 1.54.2
       react:
         specifier: ^18.2.0
         version: 18.3.1
       react-dom:
         specifier: ^18.2.0
         version: 18.3.1(react@18.3.1)
+      zod:
+        specifier: ^3.22.4
+        version: 3.25.76
     devDependencies:
       '@cursor-usage/config':
         specifier: workspace:*
