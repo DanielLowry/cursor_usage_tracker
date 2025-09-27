@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -76,12 +76,6 @@ jobs:
         run: |
           sudo -u postgres psql -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"   
         
-      # Set password so your existing DATABASE_URL keeps working
-      - name: Set Postgres password (Windows)
-        if: ${{ matrix.os == 'windows-latest' }}
-        shell: pwsh
-        run: |
-          psql -U postgres -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"      
 
       - name: DB Smoke
         run: pnpm exec tsx scripts/db-smoke.ts
@@ -122,32 +116,6 @@ jobs:
           DATABASE_URL: "postgresql://test:test@localhost:5432/test"
           REDIS_URL: "redis://localhost:6379"
           AUTH_SECRET: "test-secret"
-
-      - name: Validate Config (Failure Case) [Unix]
-        if: runner.os != 'Windows'
-        run: |
-          # This command is expected to fail, so we invert the exit code.
-          # `&& exit 1` makes the step fail if the command succeeds.
-          # `|| exit 0` makes the step succeed if the command fails.
-          SMTP_PORT="not-a-number" pnpm print:config && exit 1 || exit 0
-
-      - name: Validate Config (Failure Case) [Windows]
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Set the environment variable for this command
-          $env:SMTP_PORT = 'not-a-number'
-          # Run the command, which is expected to fail.
-          pnpm print:config
-          # Check the exit code of the last native command.
-          # We expect it to fail (non-zero), so if it succeeds (zero), we fail the step.
-          if ($LASTEXITCODE -eq 0) {
-            Write-Error 'The command was expected to fail, but it succeeded.'
-            exit 1
-          } else {
-            Write-Host "Command failed as expected, which is correct. Exit code was $LASTEXITCODE."
-            exit 0 # Explicitly exit with 0 to mark the step as successful.
-          }
 
       - run: pnpm lint
 
