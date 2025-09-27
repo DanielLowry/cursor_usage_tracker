@@ -1,6 +1,7 @@
-'use client';
+"use client";
 
 import { useState, useEffect } from 'react';
+import { detectOS, generateBashScript, generatePowershellScript, filenameForOS } from '../../../lib/login-helper-scripts';
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -8,10 +9,33 @@ interface AuthStatus {
   error?: string;
 }
 
+/*
+  LoginHelperPage (client)
+
+  Purpose:
+  - Show whether the server has access to the Cursor dashboard/session
+  - Allow operators to launch a headful login flow on the server (when possible)
+  - Provide a small downloadable helper script (per-OS) the *local* user can
+    run to complete SSO in a browser on their machine and securely upload
+    the resulting session/token back to the server.
+
+  Security notes:
+  - The helper script asks the user to paste their 'session' cookie value
+    from the browser developer tools and sends it to `POST /api/auth/upload-session`.
+  - The server endpoint must validate and securely persist the uploaded
+    session; this page only produces client-side helper scripts and does
+    not change server-side authentication behaviour.
+
+  The helper script approach is intentionally simple: it avoids shipping
+  a headful browser inside the server environment and lets a real user
+  perform SSO locally where browser-based OAuth/SSO flows work normally.
+*/
+
 export default function LoginHelperPage() {
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const checkAuthStatus = async () => {
     setIsLoading(true);
@@ -48,6 +72,48 @@ export default function LoginHelperPage() {
       alert('Failed to launch login window');
     } finally {
       setIsLaunching(false);
+    }
+  };
+
+  // downloadHelperScript
+  // - Create a platform-appropriate helper script (bash for macOS/Linux,
+  //   PowerShell for Windows) and trigger a browser download so the local
+  //   user can run it. The helper opens a browser to the login endpoint and
+  //   then asks the user to paste their `session` cookie value, which it
+  //   uploads to the server at `/api/auth/upload-session`.
+  // - We intentionally keep the helper small and interactive rather than
+  //   automating cookie extraction so the user remains in control of their
+  //   credentials/session values.
+  const downloadHelperScript = async () => {
+    setIsDownloading(true);
+    try {
+      // Origin is used so the generated script posts back to the same host
+      // the user downloaded the helper from.
+      const origin = window.location.origin;
+
+      // Detect the user's OS (client-side). Detection is encapsulated in
+      // the shared helper module so it can be tested/reused.
+      const os = detectOS();
+
+      // Generate script content and filename for the determined OS.
+      const content = os === 'windows' ? generatePowershellScript(origin) : generateBashScript(origin);
+      const filename = filenameForOS(os);
+
+      // Create a blob and trigger the download in the browser.
+      const blob = new Blob([content], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to prepare helper script');
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -113,7 +179,15 @@ export default function LoginHelperPage() {
               >
                 {isLoading ? 'Checking...' : 'Refresh Status'}
               </button>
-              
+
+              <button
+                onClick={downloadHelperScript}
+                disabled={isDownloading || isLoading}
+                className="w-full bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDownloading ? 'Preparing...' : 'Download Helper Script'}
+              </button>
+
               <button
                 onClick={launchLogin}
                 disabled={isLaunching || isLoading}
