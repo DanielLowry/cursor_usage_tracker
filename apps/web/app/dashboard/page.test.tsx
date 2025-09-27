@@ -32,9 +32,10 @@ describe('DashboardPage', () => {
   });
 
   it('renders summary text with API data', async () => {
+Fix CI    const timestamp = '2025-02-15T10:00:00.000Z';
     vi.spyOn(global, 'fetch' as never).mockResolvedValue({
       ok: true,
-      json: async () => ({ snapshotCount: 3, lastSnapshotAt: '2025-02-15T10:00:00.000Z', usageEventCount: 7 }),
+      json: async () => ({ snapshotCount: 3, lastSnapshotAt: timestamp, usageEventCount: 7 }),
     } as never);
 
     const ui = await DashboardPage();
@@ -42,7 +43,8 @@ describe('DashboardPage', () => {
 
     expect(getTestIdValue(html, 'snapshot-count')).toBe('3');
     expect(getTestIdValue(html, 'usage-event-count')).toBe('7');
-    expect(getTestIdValue(html, 'last-snapshot-at')).toBe('2025-02-15T10:00:00.000Z');
+    // Component formats the timestamp with toLocaleString(); assert against that localized value
+    expect(getTestIdValue(html, 'last-snapshot-at')).toBe(new Date(timestamp).toLocaleString());
   });
 
   it('renders fallback values if API fails', async () => {
