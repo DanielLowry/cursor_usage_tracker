@@ -32,7 +32,7 @@ describe('DashboardPage', () => {
   });
 
   it('renders summary text with API data', async () => {
-Fix CI    const timestamp = '2025-02-15T10:00:00.000Z';
+    const timestamp = '2025-02-15T10:00:00.000Z';
     vi.spyOn(global, 'fetch' as never).mockResolvedValue({
       ok: true,
       json: async () => ({ snapshotCount: 3, lastSnapshotAt: timestamp, usageEventCount: 7 }),
