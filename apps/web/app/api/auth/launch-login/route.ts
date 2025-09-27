@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { chromium } from 'playwright';
 import { z } from 'zod';
+import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 
 const envSchema = z.object({
-  PLAYWRIGHT_USER_DATA_DIR: z.string().min(1),
+  CURSOR_AUTH_STATE_DIR: z.string().min(1).default('./data'),
   CURSOR_AUTH_URL: z.string().url().default('https://authenticator.cursor.sh/'),
 });
 
@@ -17,9 +18,10 @@ export async function POST() {
       }, { status: 500 });
     }
     const env = parsed.data;
+    const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
 
     // Launch a headed browser context for manual login
-    const context = await chromium.launchPersistentContext(env.PLAYWRIGHT_USER_DATA_DIR, {
+    const context = await chromium.launchPersistentContext('./data/temp-profile', {
       headless: false, // Must be false for user interaction
       args: [
         '--no-sandbox',
@@ -39,13 +41,25 @@ export async function POST() {
         timeout: 30000 
       });
 
-      // Keep the browser open for user interaction
-      // The context will persist the session cookies when the user logs in
+      // Set up a listener to save session when user completes login
+      page.on('response', async (response) => {
+        const url = response.url();
+        // If we get redirected back to dashboard, user likely logged in successfully
+        if (url.includes('cursor.com/dashboard') || url.includes('cursor.com/account')) {
+          try {
+            await authManager.saveSessionCookies(context);
+            console.log('Login detected - session saved to cursor.state.json');
+          } catch (error) {
+            console.warn('Failed to save session after login:', error);
+          }
+        }
+      });
+
       console.log('Login browser launched - user can now authenticate');
       
       return NextResponse.json({
         success: true,
-        message: 'Login browser launched successfully. Please complete authentication in the opened window.'
+        message: 'Login browser launched successfully. Please complete authentication in the opened window. Session will be automatically saved.'
       });
 
     } catch (error) {

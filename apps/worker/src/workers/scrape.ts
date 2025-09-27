@@ -4,6 +4,8 @@ import { chromium, BrowserContext } from 'playwright';
 import prisma from '../../../../packages/db/src/client';
 import { createSnapshotIfChanged } from '../../../../packages/db/src/snapshots';
 import { trimRawBlobs } from '../../../../packages/db/src/retention';
+// Cursor authentication state management
+import { CursorAuthManager } from '../../../../packages/shared/cursor-auth/src';
 // Env validation
 import { z } from 'zod';
 // gzip helper for storing compressed payloads
@@ -14,8 +16,8 @@ import * as path from 'path';
 
 // Expected environment variables and basic validation/transforms
 const envSchema = z.object({
-  // Directory for Playwright persistent profile (so manual login can persist)
-  PLAYWRIGHT_USER_DATA_DIR: z.string().min(1),
+  // Directory for storing Cursor authentication state
+  CURSOR_AUTH_STATE_DIR: z.string().min(1).default('./data'),
   // URL of the Cursor usage/dashboard page (may change over time)
   CURSOR_USAGE_URL: z.string().url().default('https://cursor.com/dashboard?tab=usage'),
   // How many raw captures to keep (stored as string in env, converted to number)
@@ -55,21 +57,28 @@ export async function runScrape(): Promise<ScrapeResult> {
   if (!parsed.success) {
     throw new Error(`Invalid env: ${parsed.error.message}`);
   }
-  const env = parsed.data as { PLAYWRIGHT_USER_DATA_DIR: string; CURSOR_USAGE_URL: string; RAW_BLOB_KEEP_N: number };
-  console.log('runScrape: env', { CURSOR_USAGE_URL: env.CURSOR_USAGE_URL, PLAYWRIGHT_USER_DATA_DIR: env.PLAYWRIGHT_USER_DATA_DIR });
+  const env = parsed.data as { CURSOR_AUTH_STATE_DIR: string; CURSOR_USAGE_URL: string; RAW_BLOB_KEEP_N: number };
+  console.log('runScrape: env', { CURSOR_USAGE_URL: env.CURSOR_USAGE_URL, CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
 
   // browser context and captured payload accumulator
   let context: BrowserContext | null = null;
   const captured: Array<{ url?: string; payload: Buffer }> = [];
 
   try {
-    // Launch Chromium with a persistent profile so manual login can persist across runs
-    // acceptDownloads=true allows Playwright to capture download events
-    context = await chromium.launchPersistentContext(env.PLAYWRIGHT_USER_DATA_DIR, {
+    // Initialize Cursor auth manager
+    const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
+    
+    // Launch Chromium with a temporary context (no persistent profile needed)
+    context = await chromium.launchPersistentContext('./data/temp-profile', {
       headless: true,
       acceptDownloads: true,
     });
-    console.log('runScrape: launched browser persistent context');
+    console.log('runScrape: launched browser context');
+    
+    // Apply saved authentication state if available
+    await authManager.applySessionCookies(context);
+    console.log('runScrape: applied saved authentication state');
+    
     const page = await context.newPage();
 
     // Surface page console logs and errors to help diagnose failures
@@ -133,11 +142,15 @@ export async function runScrape(): Promise<ScrapeResult> {
         const googleButton = await page.$('button:has-text("Google"), button:has-text("Sign in with Google"), [data-provider="google"], [aria-label*="Google"]').catch(() => null);
         if (googleButton) {
           console.log('runScrape: Google OAuth detected - this requires manual interaction');
-          throw new Error('Google OAuth login detected. Please run "pnpm onboard" to complete authentication manually, then retry scraping');
+          throw new Error('Google OAuth login detected. Please use the login helper at /admin/login-helper to complete authentication, then retry scraping');
         } else {
-          throw new Error('Authentication required: Please run "pnpm onboard" first to log in manually, then retry scraping');
+          throw new Error('Authentication required: Please use the login helper at /admin/login-helper to authenticate, then retry scraping');
         }
       }
+    } else {
+      // Successfully authenticated - save the session state
+      await authManager.saveSessionCookies(context);
+      console.log('runScrape: authentication successful, session saved');
     }
 
     // We must use the Export CSV button exclusively. Locate the specific button
