@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { chromium } from 'playwright';
 import { z } from 'zod';
 
@@ -7,7 +7,7 @@ const envSchema = z.object({
   CURSOR_USAGE_URL: z.string().url().default('https://cursor.com/dashboard?tab=usage'),
 });
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const parsed = envSchema.safeParse(process.env);
     if (!parsed.success) {

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { chromium } from 'playwright';
 import { z } from 'zod';
 
@@ -7,7 +7,7 @@ const envSchema = z.object({
   CURSOR_AUTH_URL: z.string().url().default('https://authenticator.cursor.sh/'),
 });
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     const parsed = envSchema.safeParse(process.env);
     if (!parsed.success) {
