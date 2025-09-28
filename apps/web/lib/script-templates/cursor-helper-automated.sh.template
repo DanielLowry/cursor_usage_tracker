@@ -25,28 +25,39 @@ test_cursor_dashboard() {
 # Function to create a Node.js helper script for session capture
 create_session_capture_helper() {
     cat > session-capture.js << 'EOF'
-const puppeteer = require('puppeteer');
+const { chromium } = require('playwright');
+
+const LOGIN_URL = process.argv[2] || process.env.LOGIN_URL || 'https://cursor.com/';
+const TIMEOUT_MS = parseInt(process.argv[3], 10) || 300000;
+const POLL_INTERVAL_MS = 3000;
 
 async function captureSession() {
     try {
-        // Connect to existing browser
-        const browser = await puppeteer.connect({
-            browserURL: 'http://localhost:9222'
-        });
-        
-        const pages = await browser.pages();
-        const cursorPage = pages.find(page => page.url().includes('cursor.com'));
-        
-        if (!cursorPage) {
-            console.log('No Cursor page found');
+        const browser = await chromium.launch({ headless: false });
+        const context = await browser.newContext();
+        const page = await context.newPage();
+
+        await page.goto(LOGIN_URL, { waitUntil: 'load' });
+
+        const start = Date.now();
+        while (Date.now() - start < TIMEOUT_MS) {
+            const url = page.url();
+            if (url.includes('/dashboard')) {
+                break;
+            }
+            await page.waitForTimeout(POLL_INTERVAL_MS);
+        }
+
+        const finalUrl = page.url();
+        if (!finalUrl.includes('/dashboard')) {
+            console.error('Timeout waiting for dashboard');
+            await browser.close();
             process.exit(1);
         }
-        
-        // Get cookies
-        const cookies = await cursorPage.cookies();
-        
-        // Get localStorage
-        const localStorage = await cursorPage.evaluate(() => {
+
+        const cookies = await context.cookies('https://cursor.com');
+
+        const localStorage = await page.evaluate(() => {
             const storage = {};
             for (let i = 0; i < window.localStorage.length; i++) {
                 const key = window.localStorage.key(i);
@@ -54,9 +65,8 @@ async function captureSession() {
             }
             return storage;
         });
-        
-        // Get sessionStorage
-        const sessionStorage = await cursorPage.evaluate(() => {
+
+        const sessionStorage = await page.evaluate(() => {
             const storage = {};
             for (let i = 0; i < window.sessionStorage.length; i++) {
                 const key = window.sessionStorage.key(i);
@@ -64,19 +74,19 @@ async function captureSession() {
             }
             return storage;
         });
-        
-        // Get user agent
-        const userAgent = await cursorPage.evaluate(() => navigator.userAgent);
-        
+
+        const userAgent = await page.evaluate(() => navigator.userAgent);
+
         const sessionData = {
             cookies: cookies,
             localStorage: localStorage,
             sessionStorage: sessionStorage,
-            userAgent: userAgent
+            userAgent: userAgent,
+            url: finalUrl
         };
-        
+
         console.log(JSON.stringify(sessionData));
-        
+        await browser.close();
     } catch (error) {
         console.error('Error capturing session:', error);
         process.exit(1);
@@ -96,10 +106,10 @@ get_browser_session_data() {
         return 1
     fi
     
-    # Check if puppeteer is available
-    if ! npm list puppeteer >/dev/null 2>&1; then
-        echo "Puppeteer not found. Installing..."
-        npm install puppeteer --silent 2>&1 | sed -u 's/^/  /'
+    # Check if Playwright is available
+    if ! npm list playwright >/dev/null 2>&1; then
+        echo "Playwright not found. Installing..."
+        npm install playwright --silent 2>&1 | sed -u 's/^/  /'
     fi
     
     # Create the helper script

@@ -26,28 +26,41 @@ function Test-CursorDashboard {
 # Function to create a Node.js helper script for session capture
 function Create-SessionCaptureHelper {
     $helperScript = @"
-const puppeteer = require('puppeteer');
+const { chromium } = require('playwright');
+
+const LOGIN_URL = process.argv[2] || process.env.LOGIN_URL || 'https://cursor.com/';
+const TIMEOUT_MS = parseInt(process.argv[3], 10) || 300000;
+const POLL_INTERVAL_MS = 3000;
 
 async function captureSession() {
     try {
-        // Connect to existing browser
-        const browser = await puppeteer.connect({
-            browserURL: 'http://localhost:9222'
-        });
-        
-        const pages = await browser.pages();
-        const cursorPage = pages.find(page => page.url().includes('cursor.com'));
-        
-        if (!cursorPage) {
-            console.log('No Cursor page found');
+        const browser = await chromium.launch({ headless: false });
+        const context = await browser.newContext();
+        const page = await context.newPage();
+
+        // Navigate to the login URL
+        await page.goto(LOGIN_URL, { waitUntil: 'load' });
+
+        const start = Date.now();
+        while (Date.now() - start < TIMEOUT_MS) {
+            const url = page.url();
+            if (url.includes('/dashboard')) {
+                break;
+            }
+            // give the user time to complete SSO
+            await page.waitForTimeout(POLL_INTERVAL_MS);
+        }
+
+        const finalUrl = page.url();
+        if (!finalUrl.includes('/dashboard')) {
+            console.error('Timeout waiting for dashboard');
+            await browser.close();
             process.exit(1);
         }
-        
-        // Get cookies
-        const cookies = await cursorPage.cookies();
-        
-        // Get localStorage
-        const localStorage = await cursorPage.evaluate(() => {
+
+        const cookies = await context.cookies('https://cursor.com');
+
+        const localStorage = await page.evaluate(() => {
             const storage = {};
             for (let i = 0; i < window.localStorage.length; i++) {
                 const key = window.localStorage.key(i);
@@ -55,9 +68,8 @@ async function captureSession() {
             }
             return storage;
         });
-        
-        // Get sessionStorage
-        const sessionStorage = await cursorPage.evaluate(() => {
+
+        const sessionStorage = await page.evaluate(() => {
             const storage = {};
             for (let i = 0; i < window.sessionStorage.length; i++) {
                 const key = window.sessionStorage.key(i);
@@ -65,19 +77,19 @@ async function captureSession() {
             }
             return storage;
         });
-        
-        // Get user agent
-        const userAgent = await cursorPage.evaluate(() => navigator.userAgent);
-        
+
+        const userAgent = await page.evaluate(() => navigator.userAgent);
+
         const sessionData = {
             cookies: cookies,
             localStorage: localStorage,
             sessionStorage: sessionStorage,
-            userAgent: userAgent
+            userAgent: userAgent,
+            url: finalUrl
         };
-        
+
         console.log(JSON.stringify(sessionData));
-        
+        await browser.close();
     } catch (error) {
         console.error('Error capturing session:', error);
         process.exit(1);
@@ -101,11 +113,11 @@ function Get-BrowserSessionData {
             return $null
         }
         
-        # Check if puppeteer is available
-        $puppeteerCheck = npm list puppeteer 2>&1
-        if ($puppeteerCheck -match "empty") {
-            Write-Host "Puppeteer not found. Installing..." -ForegroundColor Yellow
-            npm install puppeteer --silent 2>&1 | Write-Host
+        # Check if Playwright is available
+        $playwrightCheck = npm list playwright 2>&1
+        if ($playwrightCheck -match "empty") {
+            Write-Host "Playwright not found. Installing..." -ForegroundColor Yellow
+            npm install playwright --silent 2>&1 | Write-Host
         }
         
         # Create the helper script
@@ -130,7 +142,7 @@ function Get-BrowserSessionData {
         } catch {
             Write-Host "Node helper produced non-JSON output. Output:" -ForegroundColor Yellow
             Write-Host $nodeOutput
-            Write-Host "Ensure the browser was launched with remote debugging (e.g. --remote-debugging-port=9222) and a Cursor page is open." -ForegroundColor Yellow
+            Write-Host "Ensure Node and Playwright are installed and the helper script ran correctly." -ForegroundColor Yellow
             return $null
         }
         
