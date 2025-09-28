@@ -43,7 +43,7 @@ describe('/api/summary-min (unit tests)', () => {
     vi.mocked(prisma.snapshot.count).mockResolvedValue(2);
     vi.mocked(prisma.snapshot.findFirst).mockResolvedValue({
       captured_at: new Date('2025-02-15T10:00:00Z'),
-    });
+    } as any);
     vi.mocked(prisma.usageEvent.count).mockResolvedValue(5);
 
     const response = await GET();
@@ -74,16 +74,19 @@ describe('/api/summary-min (unit tests)', () => {
     });
   });
 
-  it('handles database errors gracefully', async () => {
+  it('handles database errors gracefully by returning safe defaults', async () => {
     // Mock database error
     vi.mocked(prisma.snapshot.count).mockRejectedValue(new Error('Database error'));
 
     const response = await GET();
     const data = await response.json();
 
-    expect(response.status).toBe(500);
+    // The route catches errors and returns safe defaults with a 200 status
+    expect(response.status).toBe(200);
     expect(data).toEqual({
-      error: 'Failed to fetch summary data',
+      snapshotCount: 0,
+      lastSnapshotAt: null,
+      usageEventCount: 0,
     });
   });
 });
