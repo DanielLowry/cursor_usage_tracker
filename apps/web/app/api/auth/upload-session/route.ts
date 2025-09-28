@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
         sessionCookies: cookies || [],
         lastLogin: new Date().toISOString(),
         userAgent: userAgent,
-        source: 'uploaded_session' as const,
+        source: 'stored_state' as const,
       };
 
       await authManager.saveState(newState);
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
         lastChecked: new Date().toISOString(),
         sessionCookies: [sessionCookie],
         lastLogin: new Date().toISOString(),
-        source: 'uploaded_session' as const,
+        source: 'stored_state' as const,
       };
 
       await authManager.saveState(newState);
