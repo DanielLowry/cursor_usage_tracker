@@ -114,6 +114,15 @@ get_browser_session_data() {
     if ! npm list playwright >/dev/null 2>&1; then
         echo "Playwright not found. Installing..."
         npm install playwright --silent 2>&1 | sed -u 's/^/  /'
+        # Ensure Playwright browser binaries are downloaded for the installed package
+        echo "Installing Playwright browsers (chromium)..."
+        npx playwright install chromium --with-deps 2>&1 | sed -u 's/^/  /' || {
+            echo "Warning: automatic Playwright browser install failed. You may need to run: npx playwright install chromium" >&2
+        }
+    else
+        # Even if Playwright is present, ensure browsers exist for this installation
+        echo "Ensuring Playwright browsers (chromium) are installed..."
+        npx playwright install chromium --with-deps >/dev/null 2>&1 || true
     fi
     
     # Create the helper script

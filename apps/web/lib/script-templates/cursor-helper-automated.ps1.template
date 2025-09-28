@@ -122,6 +122,20 @@ function Get-BrowserSessionData {
         if ($playwrightCheck -match "empty") {
             Write-Host "Playwright not found. Installing..." -ForegroundColor Yellow
             npm install playwright --silent 2>&1 | Write-Host
+            # Ensure Playwright browser binaries are downloaded for the installed package
+            Write-Host "Installing Playwright browsers (chromium)..." -ForegroundColor Yellow
+            try {
+                npx playwright install chromium --with-deps 2>&1 | Write-Host
+            } catch {
+                Write-Host "Warning: automatic Playwright browser install failed. Please run: npx playwright install chromium" -ForegroundColor Yellow
+            }
+        } else {
+            # Even if Playwright is present, ensure browsers exist for this installation
+            try {
+                npx playwright install chromium --with-deps > $null 2>&1
+            } catch {
+                # ignore failures; the main flow will still attempt to run
+            }
         }
         
         # Create the helper script
