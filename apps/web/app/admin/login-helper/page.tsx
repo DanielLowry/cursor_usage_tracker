@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { detectOS, generateBashScript, generatePowershellScript, filenameForOS } from '../../../lib/login-helper-scripts';
+import { detectOS, generateBashScript, generatePowershellScript, generateFullyAutomatedPowershellScript, generateFullyAutomatedBashScript, filenameForOS, filenameForAutomatedOS } from '../../../lib/login-helper-scripts';
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -35,7 +35,7 @@ export default function LoginHelperPage() {
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloadingAutomated, setIsDownloadingAutomated] = useState(false);
 
   const checkAuthStatus = async () => {
     setIsLoading(true);
@@ -75,29 +75,18 @@ export default function LoginHelperPage() {
     }
   };
 
-  // downloadHelperScript
-  // - Create a platform-appropriate helper script (bash for macOS/Linux,
-  //   PowerShell for Windows) and trigger a browser download so the local
-  //   user can run it. The helper opens a browser to the login endpoint and
-  //   then asks the user to paste their `session` cookie value, which it
-  //   uploads to the server at `/api/auth/upload-session`.
-  // - We intentionally keep the helper small and interactive rather than
-  //   automating cookie extraction so the user remains in control of their
-  //   credentials/session values.
-  const downloadHelperScript = async () => {
-    setIsDownloading(true);
+  // downloadAutomatedHelperScript
+  // - Create an automated helper script that waits for authentication and
+  //   attempts to capture session data automatically.
+  const downloadAutomatedHelperScript = async () => {
+    setIsDownloadingAutomated(true);
     try {
-      // Origin is used so the generated script posts back to the same host
-      // the user downloaded the helper from.
       const origin = window.location.origin;
-
-      // Detect the user's OS (client-side). Detection is encapsulated in
-      // the shared helper module so it can be tested/reused.
       const os = detectOS();
 
-      // Generate script content and filename for the determined OS.
-      const content = os === 'windows' ? generatePowershellScript(origin) : generateBashScript(origin);
-      const filename = filenameForOS(os);
+      // Generate automated script content
+      const content = os === 'windows' ? generateFullyAutomatedPowershellScript(origin) : generateFullyAutomatedBashScript(origin);
+      const filename = filenameForAutomatedOS(os);
 
       // Create a blob and trigger the download in the browser.
       const blob = new Blob([content], { type: 'application/octet-stream' });
@@ -111,9 +100,9 @@ export default function LoginHelperPage() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
-      alert('Failed to prepare helper script');
+      alert('Failed to prepare automated helper script');
     } finally {
-      setIsDownloading(false);
+      setIsDownloadingAutomated(false);
     }
   };
 
@@ -181,11 +170,11 @@ export default function LoginHelperPage() {
               </button>
 
               <button
-                onClick={downloadHelperScript}
-                disabled={isDownloading || isLoading}
-                className="w-full bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={downloadAutomatedHelperScript}
+                disabled={isDownloadingAutomated || isLoading}
+                className="w-full bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isDownloading ? 'Preparing...' : 'Download Helper Script'}
+                {isDownloadingAutomated ? 'Preparing...' : 'Download Automated Helper Script'}
               </button>
 
               <button
@@ -200,12 +189,26 @@ export default function LoginHelperPage() {
             {/* Instructions */}
             <div className="mt-6 text-left">
               <h3 className="text-sm font-medium text-gray-900 mb-2">Instructions:</h3>
-              <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside">
-                <li>Click &quot;Launch Cursor Login&quot; to open a browser window</li>
-                <li>Complete the login process in the opened window</li>
-                <li>Click &quot;Refresh Status&quot; to verify authentication</li>
-                <li>The scraper will automatically use your saved session</li>
-              </ol>
+              <div className="text-sm text-gray-600 space-y-2">
+                <div>
+                  <h4 className="font-medium text-gray-800">Option 1: Server-side Login</h4>
+                  <ol className="ml-4 space-y-1 list-decimal list-inside">
+                    <li>Click &quot;Launch Cursor Login&quot; to open a browser window</li>
+                    <li>Complete the login process in the opened window</li>
+                    <li>Click &quot;Refresh Status&quot; to verify authentication</li>
+                    <li>The scraper will automatically use your saved session</li>
+                  </ol>
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-800">Option 2: Local Automated Helper Script</h4>
+                  <ol className="ml-4 space-y-1 list-decimal list-inside">
+                    <li>Click &quot;Download Automated Helper Script&quot; to get a script for your OS</li>
+                    <li>Run the downloaded script on your local machine (requires Node.js)</li>
+                    <li>The script will open your browser, wait for authentication, and automatically capture session data</li>
+                    <li>Return here and click &quot;Refresh Status&quot; to verify</li>
+                  </ol>
+                </div>
+              </div>
             </div>
           </div>
         </div>

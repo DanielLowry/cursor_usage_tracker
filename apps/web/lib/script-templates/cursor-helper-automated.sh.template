@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+
+# Fully Automated Cursor Login Helper
+# This script opens a browser, waits for successful login, and automatically captures session data
+
+TIMEOUT_SECONDS=${1:-300}  # 5 minutes timeout
+CHECK_INTERVAL_SECONDS=${2:-5}  # Check every 5 seconds
+
+echo "=== Fully Automated Cursor Login Helper ==="
+echo "This helper will:"
+echo "1. Open your browser to perform SSO"
+echo "2. Wait for you to complete authentication"
+echo "3. Automatically capture and upload session data"
+echo ""
+
+# Function to check if we can reach the Cursor dashboard
+test_cursor_dashboard() {
+    if curl -s --max-time 10 "https://cursor.com/dashboard" > /dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to create a Node.js helper script for session capture
+create_session_capture_helper() {
+    cat > session-capture.js << 'EOF'
+const puppeteer = require('puppeteer');
+
+async function captureSession() {
+    try {
+        // Connect to existing browser
+        const browser = await puppeteer.connect({
+            browserURL: 'http://localhost:9222'
+        });
+        
+        const pages = await browser.pages();
+        const cursorPage = pages.find(page => page.url().includes('cursor.com'));
+        
+        if (!cursorPage) {
+            console.log('No Cursor page found');
+            process.exit(1);
+        }
+        
+        // Get cookies
+        const cookies = await cursorPage.cookies();
+        
+        // Get localStorage
+        const localStorage = await cursorPage.evaluate(() => {
+            const storage = {};
+            for (let i = 0; i < window.localStorage.length; i++) {
+                const key = window.localStorage.key(i);
+                storage[key] = window.localStorage.getItem(key);
+            }
+            return storage;
+        });
+        
+        // Get sessionStorage
+        const sessionStorage = await cursorPage.evaluate(() => {
+            const storage = {};
+            for (let i = 0; i < window.sessionStorage.length; i++) {
+                const key = window.sessionStorage.key(i);
+                storage[key] = window.sessionStorage.getItem(key);
+            }
+            return storage;
+        });
+        
+        // Get user agent
+        const userAgent = await cursorPage.evaluate(() => navigator.userAgent);
+        
+        const sessionData = {
+            cookies: cookies,
+            localStorage: localStorage,
+            sessionStorage: sessionStorage,
+            userAgent: userAgent
+        };
+        
+        console.log(JSON.stringify(sessionData));
+        
+    } catch (error) {
+        console.error('Error capturing session:', error);
+        process.exit(1);
+    }
+}
+
+captureSession();
+EOF
+    echo "Created session capture helper script"
+}
+
+# Function to capture browser session data using Node.js helper
+get_browser_session_data() {
+    # Check if Node.js is available
+    if ! command -v node >/dev/null 2>&1; then
+        echo "Node.js not found. Please install Node.js to use automated session capture."
+        return 1
+    fi
+    
+    # Check if puppeteer is available
+    if ! npm list puppeteer >/dev/null 2>&1; then
+        echo "Puppeteer not found. Installing..."
+        npm install puppeteer --silent
+    fi
+    
+    # Create the helper script
+    create_session_capture_helper
+    
+    # Run the helper script
+    SESSION_DATA_JSON=$(node session-capture.js 2>/dev/null)
+    
+    if [ -n "$SESSION_DATA_JSON" ]; then
+        echo "Successfully captured session data"
+        echo "$SESSION_DATA_JSON"
+        return 0
+    else
+        echo "Failed to capture session data automatically"
+        return 1
+    fi
+}
+
+# Cleanup function
+cleanup() {
+    if [ -f "session-capture.js" ]; then
+        rm -f "session-capture.js"
+    fi
+}
+
+# Set up cleanup on exit
+trap cleanup EXIT
+
+# Start the login process
+echo "Opening browser to: {{LOGIN_URL}}"
+if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "{{LOGIN_URL}}" >/dev/null 2>&1 || true
+elif command -v open >/dev/null 2>&1; then
+    open "{{LOGIN_URL}}" >/dev/null 2>&1 || true
+else
+    echo "Please open the following URL in your browser: {{LOGIN_URL}}"
+fi
+
+echo ""
+echo "Please complete the SSO authentication in the opened browser window."
+echo "Waiting for authentication to complete..."
+
+# Wait for authentication with timeout
+START_TIME=$(date +%s)
+AUTHENTICATED=false
+
+while [ "$AUTHENTICATED" = false ] && [ $(($(date +%s) - START_TIME)) -lt $TIMEOUT_SECONDS ]; do
+    sleep $CHECK_INTERVAL_SECONDS
+    
+    # Check if we can reach the dashboard
+    if test_cursor_dashboard; then
+        AUTHENTICATED=true
+        echo "Authentication detected! Dashboard is accessible."
+        break
+    fi
+    
+    ELAPSED=$(($(date +%s) - START_TIME))
+    echo "Waiting... ($ELAPSED/$TIMEOUT_SECONDS seconds)"
+done
+
+if [ "$AUTHENTICATED" = false ]; then
+    echo "Timeout reached. Please try again or complete authentication manually."
+    exit 1
+fi
+
+# Try to capture session data automatically
+echo "Attempting to capture session data..."
+SESSION_DATA_JSON=$(get_browser_session_data)
+
+if [ -z "$SESSION_DATA_JSON" ]; then
+    # Fallback to manual input
+    echo ""
+    echo "Automated capture failed. Please manually copy the session cookie:"
+    echo "1. Open browser developer tools (F12)"
+    echo "2. Go to Application/Storage tab"
+    echo "3. Find the 'session' cookie under Cookies"
+    echo "4. Copy its value"
+    echo ""
+    
+    read -p "Paste the session cookie value here: " SESSION_VALUE
+    
+    if [ -z "$SESSION_VALUE" ]; then
+        echo "No session provided. Exiting."
+        exit 1
+    fi
+    
+    # Create session data in the expected format
+    SESSION_DATA_JSON="{\"session\":\"$SESSION_VALUE\"}"
+fi
+
+# Upload session data
+echo "Uploading session data to server..."
+
+# Determine if it's legacy format or new format
+if echo "$SESSION_DATA_JSON" | grep -q '"session"'; then
+    # Legacy format - single session cookie
+    BODY="$SESSION_DATA_JSON"
+else
+    # New format - full session data
+    BODY="{\"sessionData\":$SESSION_DATA_JSON}"
+fi
+
+if curl -X POST "{{ORIGIN}}/api/auth/upload-session" \
+    -H "Content-Type: application/json" \
+    -d "$BODY" >/dev/null 2>&1; then
+    echo "Session uploaded successfully!"
+    echo "You can now return to the login helper and click Refresh Status."
+else
+    echo "Upload failed"
+    exit 1
+fi
+
+echo ""
+echo "=== Login Helper Complete ==="
