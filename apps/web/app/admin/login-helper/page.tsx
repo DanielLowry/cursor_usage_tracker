@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { detectOS, generateBashScript, generatePowershellScript, generateFullyAutomatedPowershellScript, generateFullyAutomatedBashScript, filenameForOS, filenameForAutomatedOS } from '../../../lib/login-helper-scripts';
+import { detectOS, generateFullyAutomatedPowershellScript, generateFullyAutomatedBashScript, filenameForOS, filenameForAutomatedOS } from '../../../lib/login-helper-scripts';
 
 interface AuthStatus {
   isAuthenticated: boolean;
