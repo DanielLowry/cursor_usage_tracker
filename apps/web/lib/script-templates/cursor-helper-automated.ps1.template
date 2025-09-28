@@ -142,7 +142,10 @@ function Get-BrowserSessionData {
         Create-SessionCaptureHelper
         
         # Run the helper script and capture both stdout and stderr for diagnostics
-        $nodeOutput = & node session-capture.js 2>&1
+        # Pass the desired LOGIN_URL and timeout (ms) so Playwright drives the login flow
+        $loginUrlArg = $env:LOGIN_URL -or "https://cursor.com/"
+        $timeoutMs = [int]($TimeoutSeconds * 1000)
+        $nodeOutput = & node session-capture.js $loginUrlArg $timeoutMs 2>&1
         $exitCode = $LASTEXITCODE
 
         if ($exitCode -ne 0) {
@@ -175,36 +178,10 @@ function Get-BrowserSessionData {
     }
 }
 
-# Start the login process
-Write-Host "Opening browser to: {{LOGIN_URL}}" -ForegroundColor Cyan
-Start-Process "{{LOGIN_URL}}"
-
-Write-Host ""
-Write-Host "Please complete the SSO authentication in the opened browser window." -ForegroundColor Yellow
-Write-Host "Waiting for authentication to complete..." -ForegroundColor Yellow
-
-# Wait for authentication with timeout
-$startTime = Get-Date
-$authenticated = $false
-
-while (-not $authenticated -and ((Get-Date) - $startTime).TotalSeconds -lt $TimeoutSeconds) {
-    Start-Sleep -Seconds $CheckIntervalSeconds
-    
-    # Check if we can reach the dashboard
-    if (Test-CursorDashboard) {
-        $authenticated = $true
-        Write-Host "Authentication detected! Dashboard is accessible." -ForegroundColor Green
-        break
-    }
-    
-    $elapsed = [math]::Round(((Get-Date) - $startTime).TotalSeconds)
-    Write-Host "Waiting... ($elapsed/$TimeoutSeconds seconds)" -ForegroundColor Gray
-}
-
-if (-not $authenticated) {
-    Write-Host "Timeout reached. Please try again or complete authentication manually." -ForegroundColor Red
-    exit 1
-}
+# Start the login process using Playwright-driven browser
+Write-Host "Starting Playwright-driven login flow (Playwright will open a browser window)." -ForegroundColor Cyan
+# The Node helper will open a browser and wait for /dashboard; it receives LOGIN_URL and timeout (ms)
+# Get-BrowserSessionData will already call the Node helper with appropriate args
 
 # Try to capture session data automatically
 Write-Host "Attempting to capture session data..." -ForegroundColor Cyan
