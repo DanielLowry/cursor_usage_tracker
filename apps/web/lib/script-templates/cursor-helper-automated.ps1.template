@@ -102,24 +102,35 @@ function Get-BrowserSessionData {
         }
         
         # Check if puppeteer is available
-        $puppeteerCheck = npm list puppeteer 2>$null
-        if (-not $puppeteerCheck) {
+        $puppeteerCheck = npm list puppeteer 2>&1
+        if ($puppeteerCheck -match "empty") {
             Write-Host "Puppeteer not found. Installing..." -ForegroundColor Yellow
-            npm install puppeteer --silent
+            npm install puppeteer --silent 2>&1 | Write-Host
         }
         
         # Create the helper script
         Create-SessionCaptureHelper
         
-        # Run the helper script
-        $sessionDataJson = node session-capture.js 2>$null
-        
-        if ($sessionDataJson) {
-            $sessionData = $sessionDataJson | ConvertFrom-Json
+        # Run the helper script and capture both stdout and stderr for diagnostics
+        $nodeOutput = & node session-capture.js 2>&1
+        $exitCode = $LASTEXITCODE
+
+        if ($exitCode -ne 0) {
+            Write-Host "Node helper failed (exit code $exitCode). Output:" -ForegroundColor Red
+            Write-Host $nodeOutput
+            Write-Host "Common causes: browser not started with --remote-debugging-port=9222, no Cursor tab open, or Puppeteer/Node errors." -ForegroundColor Yellow
+            return $null
+        }
+
+        # Try to parse output as JSON
+        try {
+            $sessionData = $nodeOutput | ConvertFrom-Json
             Write-Host "Successfully captured session data" -ForegroundColor Green
             return $sessionData
-        } else {
-            Write-Host "Failed to capture session data automatically" -ForegroundColor Yellow
+        } catch {
+            Write-Host "Node helper produced non-JSON output. Output:" -ForegroundColor Yellow
+            Write-Host $nodeOutput
+            Write-Host "Ensure the browser was launched with remote debugging (e.g. --remote-debugging-port=9222) and a Cursor page is open." -ForegroundColor Yellow
             return $null
         }
         

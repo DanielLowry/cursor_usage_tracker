@@ -99,21 +99,32 @@ get_browser_session_data() {
     # Check if puppeteer is available
     if ! npm list puppeteer >/dev/null 2>&1; then
         echo "Puppeteer not found. Installing..."
-        npm install puppeteer --silent
+        npm install puppeteer --silent 2>&1 | sed -u 's/^/  /'
     fi
     
     # Create the helper script
     create_session_capture_helper
     
-    # Run the helper script
-    SESSION_DATA_JSON=$(node session-capture.js 2>/dev/null)
-    
-    if [ -n "$SESSION_DATA_JSON" ]; then
+    # Run the helper script and capture both stdout and stderr for diagnostics
+    NODE_OUTPUT=$(node session-capture.js 2>&1)
+    NODE_STATUS=$?
+
+    if [ $NODE_STATUS -ne 0 ]; then
+        echo "Node helper failed (exit code $NODE_STATUS). Output:"
+        echo "$NODE_OUTPUT"
+        echo "Common causes: browser not started with --remote-debugging-port=9222, no Cursor tab open, or Puppeteer/Node errors."
+        return 1
+    fi
+
+    # Validate JSON
+    if echo "$NODE_OUTPUT" | jq -e . >/dev/null 2>&1; then
         echo "Successfully captured session data"
-        echo "$SESSION_DATA_JSON"
+        echo "$NODE_OUTPUT"
         return 0
     else
-        echo "Failed to capture session data automatically"
+        echo "Node helper produced non-JSON output:" 
+        echo "$NODE_OUTPUT"
+        echo "Ensure the browser was launched with remote debugging (e.g. --remote-debugging-port=9222) and a Cursor page is open."
         return 1
     fi
 }
