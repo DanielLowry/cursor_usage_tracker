@@ -84,9 +84,15 @@ export default function LoginHelperPage() {
       const origin = window.location.origin;
       const os = detectOS();
 
-      // Generate automated script content
-      const content = os === 'windows' ? generateFullyAutomatedPowershellScript(origin) : generateFullyAutomatedBashScript(origin);
+      // Request full template from server and trigger download
+      const templateName = os === 'windows' ? 'cursor-helper-automated.ps1.template' : 'cursor-helper-automated.sh.template';
       const filename = filenameForAutomatedOS(os);
+
+      const resp = await fetch(`/api/scripts/template?name=${encodeURIComponent(templateName)}`);
+      if (!resp.ok) throw new Error('Failed to fetch script template');
+      let content = await resp.text();
+      // Replace placeholders with runtime values
+      content = content.replace(/{{LOGIN_URL}}/g, `${origin}/api/auth/launch-login?local_helper=true`).replace(/{{ORIGIN}}/g, origin);
 
       // Create a blob and trigger the download in the browser.
       const blob = new Blob([content], { type: 'application/octet-stream' });

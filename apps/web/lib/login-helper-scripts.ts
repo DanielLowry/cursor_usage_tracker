@@ -20,52 +20,21 @@ export function detectOS(): OS {
 export function generateFullyAutomatedPowershellScript(origin: string, loginPath = '/api/auth/launch-login?local_helper=true'): string {
   const loginUrl = `${origin}${loginPath}`;
 
-  // Server-side: read the template file from disk. Use eval('require') to avoid bundlers
-  // trying to resolve `fs` for client-side builds.
-  if (typeof window === 'undefined') {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const fs = eval('require')('fs');
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const path = eval('require')('path');
-      const templatePath = path.join(__dirname, 'script-templates', 'cursor-helper-automated.ps1.template');
-      const template = fs.readFileSync(templatePath, 'utf8');
-      return template
-        .replace(/{{LOGIN_URL}}/g, loginUrl)
-        .replace(/{{ORIGIN}}/g, origin);
-    } catch (error) {
-      console.error('Failed to read PowerShell template on server:', error);
-      // Fall through to client-safe fallback
-    }
-  }
+  // Client-side: request the server to provide the full template content.
+  // This function returns a minimal placeholder when called synchronously.
+  // The client should fetch `/api/scripts/template?name=cursor-helper-automated.ps1.template`
+  // to get the complete script text for download.
 
-  // Client-side fallback (safe for bundlers): small placeholder that includes the login URL
-  return `# Fully Automated Cursor Login Helper\n# Login URL: ${loginUrl}\n# To use full automation, download and run the server-provided script on your machine.\n`;
+  return `# Fully Automated Cursor Login Helper\n# Login URL: ${loginUrl}\n# To get the full automated helper script, fetch:\n# ${origin}/api/scripts/template?name=cursor-helper-automated.ps1.template\n`;
 }
 
 // Generate a fully automated bash script for Linux/macOS
 export function generateFullyAutomatedBashScript(origin: string, loginPath = '/api/auth/launch-login?local_helper=true'): string {
   const loginUrl = `${origin}${loginPath}`;
 
-  if (typeof window === 'undefined') {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const fs = eval('require')('fs');
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const path = eval('require')('path');
-      const templatePath = path.join(__dirname, 'script-templates', 'cursor-helper-automated.sh.template');
-      const template = fs.readFileSync(templatePath, 'utf8');
-      return template
-        .replace(/{{LOGIN_URL}}/g, loginUrl)
-        .replace(/{{ORIGIN}}/g, origin);
-    } catch (error) {
-      console.error('Failed to read bash template on server:', error);
-      // Fall through to client-safe fallback
-    }
-  }
-
-  // Client-side fallback
-  return `#!/usr/bin/env bash\n# Fully Automated Cursor Login Helper\n# Open browser to: ${loginUrl}\n# To use full automation, download and run the server-provided script on your machine.\n`;
+  // Client-side: return a minimal placeholder and instruct clients to fetch the
+  // full script from the server endpoint.
+  return `#!/usr/bin/env bash\n# Fully Automated Cursor Login Helper\n# Open browser to: ${loginUrl}\n# To fetch the full automated helper script, request:\n# ${origin}/api/scripts/template?name=cursor-helper-automated.sh.template\n`;
 }
 
 export function filenameForOS(os: OS): string {
