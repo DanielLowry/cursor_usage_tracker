@@ -19,7 +19,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: 'Template not found' }, { status: 404 });
     }
 
-    const templatePath = path.join(process.cwd(), 'apps', 'web', 'lib', 'script-templates', name);
+    const templatePath = path.join(process.cwd(), 'lib', 'script-templates', name);
     const template = fs.readFileSync(templatePath, 'utf8');
 
     return new NextResponse(template, {
