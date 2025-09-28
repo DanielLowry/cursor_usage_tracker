@@ -50,7 +50,9 @@ async function captureSession() {
 
         const finalUrl = page.url();
         if (!finalUrl.includes('/dashboard')) {
-            console.error('Timeout waiting for dashboard');
+            console.error('Timeout waiting for /dashboard. Final URL: ' + finalUrl);
+            console.error('Possible causes: SSO not completed, network redirects, or strict browser policies.');
+            console.error('If Playwright was just installed, run: npx playwright install chromium');
             await browser.close();
             process.exit(1);
         }
@@ -88,7 +90,9 @@ async function captureSession() {
         console.log(JSON.stringify(sessionData));
         await browser.close();
     } catch (error) {
-        console.error('Error capturing session:', error);
+        console.error('Error capturing session:', error && error.stack ? error.stack : error);
+        console.error('If Playwright was just installed, run: npx playwright install chromium');
+        console.error('To debug run: node session-capture.js "<LOGIN_URL>" 300000');
         process.exit(1);
     }
 }
@@ -122,7 +126,7 @@ get_browser_session_data() {
     if [ $NODE_STATUS -ne 0 ]; then
         echo "Node helper failed (exit code $NODE_STATUS). Output:"
         echo "$NODE_OUTPUT"
-        echo "Common causes: browser not started with --remote-debugging-port=9222, no Cursor tab open, or Puppeteer/Node errors."
+        echo "Common causes: Playwright not installed, Playwright browsers not downloaded (run: npx playwright install chromium), SSO didn't finish before timeout, or Node/Playwright runtime errors."
         return 1
     fi
 

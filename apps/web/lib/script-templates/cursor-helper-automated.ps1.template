@@ -53,7 +53,9 @@ async function captureSession() {
 
         const finalUrl = page.url();
         if (!finalUrl.includes('/dashboard')) {
-            console.error('Timeout waiting for dashboard');
+            console.error('Timeout waiting for /dashboard. Final URL: ' + finalUrl);
+            console.error('Possible causes: SSO not completed, network redirects, or strict browser policies.');
+            console.error('If Playwright was just installed, run: npx playwright install chromium');
             await browser.close();
             process.exit(1);
         }
@@ -91,7 +93,9 @@ async function captureSession() {
         console.log(JSON.stringify(sessionData));
         await browser.close();
     } catch (error) {
-        console.error('Error capturing session:', error);
+        console.error('Error capturing session:', error && error.stack ? error.stack : error);
+        console.error('If Playwright was just installed, run: npx playwright install chromium');
+        console.error('To debug run: node session-capture.js "<LOGIN_URL>" 300000');
         process.exit(1);
     }
 }
@@ -130,7 +134,7 @@ function Get-BrowserSessionData {
         if ($exitCode -ne 0) {
             Write-Host "Node helper failed (exit code $exitCode). Output:" -ForegroundColor Red
             Write-Host $nodeOutput
-            Write-Host "Common causes: browser not started with --remote-debugging-port=9222, no Cursor tab open, or Puppeteer/Node errors." -ForegroundColor Yellow
+            Write-Host "Common causes: Playwright not installed, Playwright browsers not downloaded (run `npx playwright install chromium`), SSO didn't finish before timeout, or Node/Playwright runtime errors." -ForegroundColor Yellow
             return $null
         }
 
