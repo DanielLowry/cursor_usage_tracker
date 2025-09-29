@@ -39,6 +39,7 @@ async function captureSession() {
         const page = await context.newPage();
 
         // Navigate to the login URL
+        console.error("Loading " + LOGIN_URL)
         await page.goto(LOGIN_URL, { waitUntil: 'load' });
 
         const start = Date.now();
@@ -143,7 +144,7 @@ function Get-BrowserSessionData {
         
         # Run the helper script and capture both stdout and stderr for diagnostics
         # Pass the desired LOGIN_URL and timeout (ms) so Playwright drives the login flow
-        $loginUrlArg = $env:LOGIN_URL -or "https://cursor.com/"
+        $loginUrlArg = "https://authenticator.cursor.sh/"
         $timeoutMs = [int]($TimeoutSeconds * 1000)
         $nodeOutput = & node session-capture.js $loginUrlArg $timeoutMs 2>&1
         $exitCode = $LASTEXITCODE
