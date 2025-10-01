@@ -17,24 +17,16 @@ export function detectOS(): OS {
 }
 
 // Generate a fully automated PowerShell script that uses a Node.js helper for session capture
+// The automated helper script generators were removed in favor of the browser
+// extension. Keep small helper utilities used elsewhere.
 export function generateFullyAutomatedPowershellScript(origin: string, loginPath = '/api/auth/launch-login?local_helper=true'): string {
   const loginUrl = `${origin}${loginPath}`;
-
-  // Client-side: request the server to provide the full template content.
-  // This function returns a minimal placeholder when called synchronously.
-  // The client should fetch `/api/scripts/template?name=cursor-helper-automated.ps1.template`
-  // to get the complete script text for download.
-
-  return `# Fully Automated Cursor Login Helper\n# Login URL: ${loginUrl}\n# To get the full automated helper script, fetch:\n# ${origin}/api/scripts/template?name=cursor-helper-automated.ps1.template\n`;
+  return `# Automated helper scripts removed; use the browser extension.\n# For manual steps, open: ${loginUrl}\n`;
 }
 
-// Generate a fully automated bash script for Linux/macOS
 export function generateFullyAutomatedBashScript(origin: string, loginPath = '/api/auth/launch-login?local_helper=true'): string {
   const loginUrl = `${origin}${loginPath}`;
-
-  // Client-side: return a minimal placeholder and instruct clients to fetch the
-  // full script from the server endpoint.
-  return `#!/usr/bin/env bash\n# Fully Automated Cursor Login Helper\n# Open browser to: ${loginUrl}\n# To fetch the full automated helper script, request:\n# ${origin}/api/scripts/template?name=cursor-helper-automated.sh.template\n`;
+  return `# Automated helper scripts removed; use the browser extension.\n# For manual steps, open: ${loginUrl}\n`;
 }
 
 export function filenameForOS(os: OS): string {

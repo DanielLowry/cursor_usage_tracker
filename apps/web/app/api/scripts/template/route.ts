@@ -8,8 +8,6 @@ import path from 'path';
 
 // Whitelist templates that clients are allowed to request
 const allowedTemplates = new Set([
-  'cursor-helper-automated.ps1.template',
-  'cursor-helper-automated.sh.template',
   'cursor-helper.ps1.template',
   'cursor-helper.sh.template'
 ]);

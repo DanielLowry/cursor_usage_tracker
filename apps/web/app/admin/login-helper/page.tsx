@@ -84,26 +84,9 @@ export default function LoginHelperPage() {
       const origin = window.location.origin;
       const os = detectOS();
 
-      // Request full template from server and trigger download
-      const templateName = os === 'windows' ? 'cursor-helper-automated.ps1.template' : 'cursor-helper-automated.sh.template';
-      const filename = filenameForAutomatedOS(os);
-
-      const resp = await fetch(`/api/scripts/template?name=${encodeURIComponent(templateName)}`);
-      if (!resp.ok) throw new Error('Failed to fetch script template');
-      let content = await resp.text();
-      // Replace placeholders with runtime values
-      content = content.replace(/{{LOGIN_URL}}/g, `${origin}/api/auth/launch-login?local_helper=true`).replace(/{{ORIGIN}}/g, origin);
-
-      // Create a blob and trigger the download in the browser.
-      const blob = new Blob([content], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      // The automated helper scripts were removed in favor of the browser extension.
+      // Inform the user and provide instructions to use the extension instead.
+      alert('Automated helper scripts have been removed. Please use the browser extension via "Download Browser Extension".');
     } catch (err) {
       console.error(err);
       alert('Failed to prepare automated helper script');
@@ -176,7 +159,7 @@ export default function LoginHelperPage() {
               </button>
 
               <button
-                onClick={() => window.location.href = '/dist/cursor-session-helper.zip'}
+                onClick={() => (window.location.href = '/api/extension/download')}
                 className="w-full bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700"
               >
                 Download Browser Extension
