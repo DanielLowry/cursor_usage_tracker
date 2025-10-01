@@ -49,10 +49,19 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - run: pnpm --version
-      
+
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm --filter @cursor-usage/worker run install_playwright 
+
+      - name: Prisma Generate
+        run: pnpm --filter @cursor-usage/db run db:generate
+
+      - name: Build dependent packages
+        run: |
+          # Ensure workspace packages that Next may import are built first
+          pnpm --filter @cursor-usage/ingest build || true
+          pnpm --filter @cursor-usage/db build || true
 
       - name: Build
         run: pnpm build
