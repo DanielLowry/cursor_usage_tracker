@@ -42,28 +42,62 @@ async function generateAndCache() {
     }
   }
 
-  if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+  if (!fs.existsSync(CACHE_DIR)) {
+    console.log('[extension/download] Cache dir missing; creating:', CACHE_DIR);
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+  } else {
+    console.log('[extension/download] Cache dir exists:', CACHE_DIR);
+  }
   ensureIconsExist();
 
   const tmpStream = fs.createWriteStream(TMP_PATH);
   const archive = archiver('zip', { zlib: { level: 9 } });
 
   return new Promise<void>((resolve, reject) => {
+    console.log('[extension/download] Beginning archive creation to tmp path:', TMP_PATH);
     tmpStream.on('close', () => {
+      console.log('[extension/download] tmp stream closed; attempting to rename tmp -> cache');
       try {
         fs.renameSync(TMP_PATH, CACHE_PATH);
+        console.log('[extension/download] Cache successfully written:', CACHE_PATH);
       } catch (err) {
+        console.error('[extension/download] Failed to rename tmp file to cache', err);
         return reject(err);
       }
       resolve();
     });
-    tmpStream.on('error', (err) => reject(err));
+    tmpStream.on('error', (err) => {
+      console.error('[extension/download] tmpStream error', err);
+      reject(err);
+    });
 
-    archive.on('error', (err) => reject(err));
+    archive.on('error', (err) => {
+      console.error('[extension/download] archiver error', err);
+      reject(err);
+    });
+
+    archive.on('warning', (warn) => {
+      console.warn('[extension/download] archiver warning', warn);
+    });
 
     archive.pipe(tmpStream);
-    archive.directory(path.join(process.cwd(), 'apps', 'web', 'public', 'extension'), false);
-    archive.finalize().catch((err) => reject(err));
+    const addPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension');
+    console.log('[extension/download] Adding directory to archive:', addPath);
+    archive.directory(addPath, false);
+    try {
+      const finalizeResult = archive.finalize();
+      if (finalizeResult && typeof (finalizeResult as any).then === 'function') {
+        (finalizeResult as any).catch((err: any) => {
+          console.error('[extension/download] archive.finalize() promise rejected', err);
+          reject(err);
+        });
+      }
+    } catch (err) {
+      // Some archiver versions throw synchronously or return void; ensure we
+      // surface those errors to the promise consumer.
+      console.error('[extension/download] archive.finalize() threw synchronously', err);
+      reject(err);
+    }
   });
 }
 
@@ -71,14 +105,17 @@ export async function GET() {
   try {
     console.log('[extension/download] Request received: starting download handling');
     const requestStart = Date.now();
+    console.log('[extension/download] Current PID:', process.pid, 'CWD:', process.cwd());
     // If cache exists and is fresh, return it immediately
     if (fs.existsSync(CACHE_PATH)) {
       const stats = fs.statSync(CACHE_PATH);
       const age = Date.now() - stats.mtimeMs;
-      console.log(`[extension/download] Cache exists; age=${age}ms`);
+      console.log(`[extension/download] Cache exists; path=${CACHE_PATH}; size=${stats.size}; age=${age}ms`);
       // If fresh, stream cached file and trigger background regen after download finishes
       if (age < REGENERATE_AFTER_MS) {
         const nodeStream = fs.createReadStream(CACHE_PATH);
+        nodeStream.on('error', (err) => console.error('[extension/download] Error reading cached file stream', err));
+        nodeStream.on('open', () => console.log('[extension/download] Opened cached file stream for reading')); 
         const stream = NodeReadable.toWeb(nodeStream as unknown as NodeReadable);
         console.log('[extension/download] Serving cached zip (fresh) to client');
         // Fire-and-forget regeneration after responding
@@ -148,14 +185,29 @@ export async function GET() {
           : path.join(cwd, 'apps', 'web', 'scripts', 'generate-icons.js');
         console.log('[extension/download] Icons missing for streaming; running generator:', scriptPath);
         execFileSync(process.execPath, [scriptPath], { stdio: 'inherit' });
+        console.log('[extension/download] Icon generation completed for streaming');
+      } else {
+        console.log('[extension/download] Icons present for streaming at', iconCheckPath);
       }
     } catch (err) {
       console.error('[extension/download] Failed to generate icons for streaming', err);
     }
 
-    archive.directory(path.join(process.cwd(), 'apps', 'web', 'public', 'extension'), false);
+    const streamAddPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension');
+    archive.directory(streamAddPath, false);
+    console.log('[extension/download] Added directory to streaming archive:', streamAddPath);
     // Fire-and-forget finalize (we already kicked off background generateAndCache)
-    archive.finalize().catch(() => {});
+    try {
+      const finalizeResult = archive.finalize();
+      if (finalizeResult && typeof (finalizeResult as any).then === 'function') {
+        // Swallow finalize rejection for streaming path; generation errors are
+        // already logged elsewhere. We still guard against synchronous throws.
+        (finalizeResult as any).catch((err: any) => console.error('[extension/download] archive.finalize() rejected during streaming', err));
+      }
+    } catch (err) {
+      // Ignore synchronous finalize errors for streaming path but log for visibility.
+      console.error('[extension/download] archive.finalize() threw synchronously during streaming', err);
+    }
 
     // Convert Node stream to Web ReadableStream and return as Response
     const webStream = NodeReadable.toWeb(pass as unknown as NodeReadable);
