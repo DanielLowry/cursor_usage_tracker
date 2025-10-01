@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+
+// This route reads request.url/searchParams which prevents static optimization.
+// Mark it as force-dynamic so Next knows it must run at request time.
+export const dynamic = 'force-dynamic';
 import fs from 'fs';
 import path from 'path';
 
