@@ -75,9 +75,6 @@ jobs:
             if docker exec redis redis-cli ping | grep PONG; then
               echo "Redis is ready"; break; fi; sleep 1; done
 
-      - name: Prisma Generate
-        run: pnpm --filter @cursor-usage/db run db:generate
-
       # Set password using the postgres OS user (no password required yet)
       - name: Set Postgres password (Linux)
         if: ${{ matrix.os == 'ubuntu-latest' }}
