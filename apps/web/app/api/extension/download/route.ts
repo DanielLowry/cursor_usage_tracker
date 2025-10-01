@@ -19,8 +19,8 @@ async function generateAndCache() {
   // Ensure icons are present before creating the archive; if missing, run the
   // repo's icon generation script (sync) so the produced zip always contains
   // the required `icons/*` files referenced by the manifest.
-  function ensureIconsExist() {
-    const iconCheckPath = path.join(process.cwd(), 'public', 'extension', 'icons', 'icon128.png');
+    function ensureIconsExist() {
+    const iconCheckPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension', 'icons', 'icon128.png');
     if (fs.existsSync(iconCheckPath)) return;
 
     try {
@@ -57,7 +57,7 @@ async function generateAndCache() {
     archive.on('error', (err) => reject(err));
 
     archive.pipe(tmpStream);
-    archive.directory(path.join(process.cwd(), 'public', 'extension'), false);
+    archive.directory(path.join(process.cwd(), 'apps', 'web', 'public', 'extension'), false);
     archive.finalize().catch((err) => reject(err));
   });
 }
@@ -135,7 +135,7 @@ export async function GET() {
     archive.pipe(pass);
     // Ensure icons exist for the on-the-fly stream path as well.
     try {
-      const iconCheckPath = path.join(process.cwd(), 'public', 'extension', 'icons', 'icon128.png');
+      const iconCheckPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension', 'icons', 'icon128.png');
       if (!fs.existsSync(iconCheckPath)) {
         const scriptPath = path.join(process.cwd(), 'apps', 'web', 'scripts', 'generate-icons.js');
         console.log('[extension/download] Icons missing for streaming; running generator:', scriptPath);
@@ -145,7 +145,7 @@ export async function GET() {
       console.error('[extension/download] Failed to generate icons for streaming', err);
     }
 
-    archive.directory(path.join(process.cwd(), 'public', 'extension'), false);
+    archive.directory(path.join(process.cwd(), 'apps', 'web', 'public', 'extension'), false);
     // Fire-and-forget finalize (we already kicked off background generateAndCache)
     archive.finalize().catch(() => {});
 
