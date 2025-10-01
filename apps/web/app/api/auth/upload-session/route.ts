@@ -1,15 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createSecretKey } from 'crypto';
-import { seal } from '@noble/ciphers/aes-gcm';
-
-// Get encryption key from environment
-const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
-if (!ENCRYPTION_KEY) {
-  throw new Error('SESSION_ENCRYPTION_KEY environment variable not set');
-}
-
-// Convert hex key to Uint8Array
-const key = createSecretKey(Buffer.from(ENCRYPTION_KEY, 'hex'));
+import crypto from 'crypto';
 
 export async function POST(request: Request) {
   try {
@@ -25,24 +15,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No session data provided' }, { status: 400 });
     }
 
-    // Encrypt the session data
+    // Encrypt the session data using AES-256-GCM (Node built-in crypto)
+    const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
+    if (!ENCRYPTION_KEY) {
+      console.error('SESSION_ENCRYPTION_KEY not set');
+      return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
+    }
+
+    const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
+    if (keyBuffer.length !== 32) {
+      console.error('SESSION_ENCRYPTION_KEY must be 32 bytes (hex-encoded)');
+      return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 });
+    }
+
     const dataToEncrypt = JSON.stringify(sessionData);
-    const nonce = crypto.getRandomValues(new Uint8Array(12));
-    const encryptedData = await seal(
-      key,
-      nonce,
-      new TextEncoder().encode(dataToEncrypt)
-    );
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', keyBuffer, iv);
+    const encrypted = Buffer.concat([cipher.update(dataToEncrypt, 'utf8'), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+
+    const payload = {
+      ciphertext: encrypted.toString('base64'),
+      iv: iv.toString('base64'),
+      tag: authTag.toString('base64'),
+      createdAt: new Date().toISOString()
+    };
 
     // Store the encrypted data (implement your storage solution here)
-    // For example, save to a database:
-    // await db.sessions.create({
-    //   data: {
-    //     encryptedData: Buffer.from(encryptedData).toString('base64'),
-    //     nonce: Buffer.from(nonce).toString('base64'),
-    //     createdAt: new Date()
-    //   }
-    // });
+    // Example placeholder:
+    // await db.sessions.create({ data: { payload: JSON.stringify(payload) } });
 
     return NextResponse.json({ success: true });
   } catch (error) {

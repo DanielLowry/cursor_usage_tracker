@@ -1,5 +1,5 @@
 {
-  "extends": "@cursor-usage/config/base.tsconfig.json",
+  "extends": "../../packages/config/base.tsconfig.json",
   "compilerOptions": {
     "plugins": [
       {
