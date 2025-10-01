@@ -41,20 +41,25 @@ async function generateAndCache() {
 
 export async function GET() {
   try {
+    console.log('[extension/download] Request received: starting download handling');
+    const requestStart = Date.now();
     // If cache exists and is fresh, return it immediately
     if (fs.existsSync(CACHE_PATH)) {
       const stats = fs.statSync(CACHE_PATH);
       const age = Date.now() - stats.mtimeMs;
+      console.log(`[extension/download] Cache exists; age=${age}ms`);
       // If fresh, stream cached file and trigger background regen after download finishes
       if (age < REGENERATE_AFTER_MS) {
         const nodeStream = fs.createReadStream(CACHE_PATH);
         const stream = NodeReadable.toWeb(nodeStream as unknown as NodeReadable);
+        console.log('[extension/download] Serving cached zip (fresh) to client');
         // Fire-and-forget regeneration after responding
         nodeStream.on('close', () => {
           // If no generation is in progress, start one in background
           if (!generatingPromise) {
+            console.log('[extension/download] Scheduling background regeneration after cached download');
             generatingPromise = (async () => {
-              try { await generateAndCache(); } catch (e) { /* ignore */ } finally { generatingPromise = null; }
+              try { console.log('[extension/download] Background regeneration started'); await generateAndCache(); console.log('[extension/download] Background regeneration finished'); } catch (e) { console.error('[extension/download] Background regeneration failed', e); } finally { generatingPromise = null; }
             })();
           }
         });
@@ -74,8 +79,11 @@ export async function GET() {
     // If generation already in progress, wait for it and serve the cache if it appears
     if (generatingPromise) {
       try {
+        console.log('[extension/download] Waiting for in-progress generation to complete');
         await generatingPromise;
+        console.log('[extension/download] In-progress generation finished; checking for cache');
         if (fs.existsSync(CACHE_PATH)) {
+          console.log('[extension/download] Serving cache produced by concurrent generation');
           const nodeStream = fs.createReadStream(CACHE_PATH);
           const web = NodeReadable.toWeb(nodeStream as unknown as NodeReadable);
           return new Response(web as unknown as BodyInit, {
@@ -87,13 +95,15 @@ export async function GET() {
           });
         }
       } catch (err) {
+        console.error('[extension/download] Error while waiting for generation', err);
         // continue to attempt streaming generation below
       }
     }
 
     // No cache or stale: generate and stream to client while writing to tmp cache
+    console.log('[extension/download] No fresh cache available; starting generation and streaming to client');
     generatingPromise = (async () => {
-      try { await generateAndCache(); } catch (e) { /* ignore */ } finally { generatingPromise = null; }
+      try { console.log('[extension/download] Background generateAndCache started'); await generateAndCache(); console.log('[extension/download] Background generateAndCache finished'); } catch (e) { console.error('[extension/download] Background generateAndCache failed', e); } finally { generatingPromise = null; }
     })();
 
     // Stream freshly-built archive directly to client
@@ -106,6 +116,7 @@ export async function GET() {
 
     // Convert Node stream to Web ReadableStream and return as Response
     const webStream = NodeReadable.toWeb(pass as unknown as NodeReadable);
+    console.log('[extension/download] Streaming newly-created archive to client');
     return new Response(webStream as unknown as BodyInit, {
       status: 200,
       headers: {
@@ -115,6 +126,7 @@ export async function GET() {
       }
     });
   } catch (err) {
+    console.error('[extension/download] Failed to generate extension', err);
     return new NextResponse('Failed to generate extension', { status: 500 });
   }
 }
