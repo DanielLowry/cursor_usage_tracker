@@ -176,11 +176,10 @@ export default function LoginHelperPage() {
               </button>
 
               <button
-                onClick={downloadAutomatedHelperScript}
-                disabled={isDownloadingAutomated || isLoading}
-                className="w-full bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => window.location.href = '/dist/cursor-session-helper.zip'}
+                className="w-full bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700"
               >
-                {isDownloadingAutomated ? 'Preparing...' : 'Download Automated Helper Script'}
+                Download Browser Extension
               </button>
 
               <button
@@ -206,11 +205,13 @@ export default function LoginHelperPage() {
                   </ol>
                 </div>
                 <div>
-                  <h4 className="font-medium text-gray-800">Option 2: Local Automated Helper Script</h4>
+                  <h4 className="font-medium text-gray-800">Option 2: Browser Extension</h4>
                   <ol className="ml-4 space-y-1 list-decimal list-inside">
-                    <li>Click &quot;Download Automated Helper Script&quot; to get a script for your OS</li>
-                    <li>Run the downloaded script on your local machine (requires Node.js)</li>
-                    <li>The script will open your browser, wait for authentication, and automatically capture session data</li>
+                    <li>Click &quot;Download Browser Extension&quot; to get the extension</li>
+                    <li>Open Chrome and go to chrome://extensions/</li>
+                    <li>Enable &quot;Developer mode&quot; in the top right</li>
+                    <li>Drag and drop the downloaded .zip file into Chrome</li>
+                    <li>Click the extension icon and &quot;Capture Session Data&quot;</li>
                     <li>Return here and click &quot;Refresh Status&quot; to verify</li>
                   </ol>
                 </div>
