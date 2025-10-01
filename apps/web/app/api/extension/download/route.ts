@@ -26,7 +26,12 @@ async function generateAndCache() {
     try {
       // Path to the helper script that creates icons. Run with the current
       // Node executable to ensure same runtime.
-      const scriptPath = path.join(process.cwd(), 'apps', 'web', 'scripts', 'generate-icons.js');
+      // Resolve the script path robustly: if CWD is the package folder (apps/web),
+      // call the script from there; otherwise, reference it from the repository root.
+      const cwd = process.cwd();
+      const scriptPath = cwd.endsWith(path.join('apps', 'web'))
+        ? path.join(cwd, 'scripts', 'generate-icons.js')
+        : path.join(cwd, 'apps', 'web', 'scripts', 'generate-icons.js');
       console.log('[extension/download] Icons missing; running generator:', scriptPath);
       execFileSync(process.execPath, [scriptPath], { stdio: 'inherit' });
       console.log('[extension/download] Icon generation completed');
@@ -137,7 +142,10 @@ export async function GET() {
     try {
       const iconCheckPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension', 'icons', 'icon128.png');
       if (!fs.existsSync(iconCheckPath)) {
-        const scriptPath = path.join(process.cwd(), 'apps', 'web', 'scripts', 'generate-icons.js');
+        const cwd = process.cwd();
+        const scriptPath = cwd.endsWith(path.join('apps', 'web'))
+          ? path.join(cwd, 'scripts', 'generate-icons.js')
+          : path.join(cwd, 'apps', 'web', 'scripts', 'generate-icons.js');
         console.log('[extension/download] Icons missing for streaming; running generator:', scriptPath);
         execFileSync(process.execPath, [scriptPath], { stdio: 'inherit' });
       }
