@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { PassThrough, Readable as NodeReadable } from 'stream';
+import { execFileSync } from 'child_process';
 import archiver from 'archiver';
 import { NextResponse } from 'next/server';
 
@@ -15,7 +16,29 @@ let generatingPromise: Promise<void> | null = null;
 const REGENERATE_AFTER_MS = 1000 * 60 * 5; // 5 minutes
 
 async function generateAndCache() {
+  // Ensure icons are present before creating the archive; if missing, run the
+  // repo's icon generation script (sync) so the produced zip always contains
+  // the required `icons/*` files referenced by the manifest.
+  function ensureIconsExist() {
+    const iconCheckPath = path.join(process.cwd(), 'public', 'extension', 'icons', 'icon128.png');
+    if (fs.existsSync(iconCheckPath)) return;
+
+    try {
+      // Path to the helper script that creates icons. Run with the current
+      // Node executable to ensure same runtime.
+      const scriptPath = path.join(process.cwd(), 'apps', 'web', 'scripts', 'generate-icons.js');
+      console.log('[extension/download] Icons missing; running generator:', scriptPath);
+      execFileSync(process.execPath, [scriptPath], { stdio: 'inherit' });
+      console.log('[extension/download] Icon generation completed');
+    } catch (err) {
+      // Don't throw here; we'll surface an error later when archiver runs, but
+      // log for diagnostics.
+      console.error('[extension/download] Icon generation failed', err);
+    }
+  }
+
   if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+  ensureIconsExist();
 
   const tmpStream = fs.createWriteStream(TMP_PATH);
   const archive = archiver('zip', { zlib: { level: 9 } });
@@ -110,6 +133,18 @@ export async function GET() {
     const archive = archiver('zip', { zlib: { level: 9 } });
     const pass = new PassThrough();
     archive.pipe(pass);
+    // Ensure icons exist for the on-the-fly stream path as well.
+    try {
+      const iconCheckPath = path.join(process.cwd(), 'public', 'extension', 'icons', 'icon128.png');
+      if (!fs.existsSync(iconCheckPath)) {
+        const scriptPath = path.join(process.cwd(), 'apps', 'web', 'scripts', 'generate-icons.js');
+        console.log('[extension/download] Icons missing for streaming; running generator:', scriptPath);
+        execFileSync(process.execPath, [scriptPath], { stdio: 'inherit' });
+      }
+    } catch (err) {
+      console.error('[extension/download] Failed to generate icons for streaming', err);
+    }
+
     archive.directory(path.join(process.cwd(), 'public', 'extension'), false);
     // Fire-and-forget finalize (we already kicked off background generateAndCache)
     archive.finalize().catch(() => {});
