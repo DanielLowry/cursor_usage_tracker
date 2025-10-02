@@ -1,3 +1,25 @@
+/*
+  /api/extension/download
+
+  This route generates and serves a packaged ZIP of the browser extension located
+  at `apps/web/public/extension`. Usage:
+
+  - GET: returns a ZIP archive named `cursor-session-helper.zip` containing the
+    extension files. If a cached ZIP exists under `public/dist` and is fresh
+    (configured by `REGENERATE_AFTER_MS`), it will be streamed immediately and
+    a background regeneration will be scheduled after the response is sent.
+
+  - If no fresh cache exists the route will stream a freshly-generated ZIP to
+    the client while concurrently writing a cache file to `public/dist` for
+    subsequent requests.
+
+  Implementation notes:
+  - Icons required by the extension are generated on-demand via the project's
+    helper script if missing.
+  - To avoid producing invalid/empty ZIPs, the generator checks that the
+    extension directory contains at least one file before creating an archive
+    and will abort with a clear error if empty.
+*/
 export const runtime = 'nodejs';
 
 import fs from 'fs';
@@ -16,6 +38,19 @@ let generatingPromise: Promise<void> | null = null;
 
 // Threshold (ms) after which we consider regenerating after a download
 const REGENERATE_AFTER_MS = 1000 * 60 * 5; // 5 minutes
+
+// Helper: count files recursively under a directory (returns 0 if missing or empty)
+function countFilesRecursively(dirPath: string): number {
+  if (!fs.existsSync(dirPath)) return 0;
+  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+  let total = 0;
+  for (const entry of entries) {
+    const p = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) total += countFilesRecursively(p);
+    else if (entry.isFile()) total++;
+  }
+  return total;
+}
 
 async function generateAndCache() {
   // Ensure icons are present before creating the archive; if missing, run the
@@ -52,6 +87,7 @@ async function generateAndCache() {
   }
   ensureIconsExist();
 
+
   const tmpStream = fs.createWriteStream(TMP_PATH);
   const archive = archiver('zip', { zlib: { level: 9 } });
 
@@ -85,6 +121,15 @@ async function generateAndCache() {
     archive.pipe(tmpStream);
     const addPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension');
     console.log('[extension/download] Adding directory to archive:', addPath);
+    const addPathFileCount = countFilesRecursively(addPath);
+    if (addPathFileCount === 0) {
+      const err = new Error('No files found to add to archive; aborting zip creation');
+      console.error('[extension/download] ' + err.message);
+      // Ensure streams/archiver are cleaned up before rejecting
+      try { archive.destroy(); } catch (e) { /* ignore */ }
+      try { tmpStream.destroy(); } catch (e) { /* ignore */ }
+      return reject(err);
+    }
     archive.directory(addPath, false);
     try {
       const finalizeResult = archive.finalize();
@@ -196,6 +241,13 @@ export async function GET() {
     }
 
     const streamAddPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension');
+    const streamPathFileCount = countFilesRecursively(streamAddPath);
+    if (streamPathFileCount === 0) {
+      const err = new Error('No files found to add to streaming archive; aborting streaming zip creation');
+      console.error('[extension/download] ' + err.message);
+      try { archive.destroy(); } catch (e) { /* ignore */ }
+      throw err;
+    }
     archive.directory(streamAddPath, false);
     console.log('[extension/download] Added directory to streaming archive:', streamAddPath);
     // Fire-and-forget finalize (we already kicked off background generateAndCache)
