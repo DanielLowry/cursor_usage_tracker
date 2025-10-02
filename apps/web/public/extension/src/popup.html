@@ -46,6 +46,23 @@
       background-color: #dbeafe;
       color: #1e40af;
     }
+    .config-section {
+      margin-top: 16px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 16px;
+    }
+    .config-section label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+    .config-section input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
@@ -55,6 +72,14 @@
       Ready to capture session data
     </div>
     <button id="captureBtn">Capture Session Data</button>
+    
+    <div class="config-section">
+      <h3>Configuration</h3>
+      <label for="uploadUrl">Upload URL</label>
+      <input id="uploadUrl" type="url" placeholder="https://your-server.example.com/api/auth/upload-session" />
+      <button id="saveUrlBtn">Save Upload URL</button>
+      <div id="configStatus" class="status"></div>
+    </div>
   </div>
   <script src="popup.js"></script>
 </body>

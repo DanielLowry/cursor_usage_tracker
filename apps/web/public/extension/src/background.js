@@ -8,11 +8,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
+// Default upload URL 
+const DEFAULT_UPLOAD_URL = 'https://cursor.sh/api/auth/upload-session';
+
 async function captureCursorSession() {
   try {
-    // Get the upload URL from storage
-    const { uploadUrl } = await chrome.storage.local.get(['uploadUrl']);
-    if (!uploadUrl) {
+    // Get the upload URL from storage, with a default fallback
+    const { uploadUrl, useCustomUploadUrl } = await chrome.storage.local.get(['uploadUrl', 'useCustomUploadUrl']);
+    const finalUploadUrl = uploadUrl || DEFAULT_UPLOAD_URL;
+
+    if (!finalUploadUrl) {
       throw new Error('Extension not configured');
     }
 
@@ -69,7 +74,7 @@ async function captureCursorSession() {
     };
 
     // Upload the session data
-    const response = await fetch(uploadUrl, {
+    const response = await fetch(finalUploadUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -88,3 +93,11 @@ async function captureCursorSession() {
     throw error;
   }
 }
+
+// On first install, set a default upload URL
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.set({ 
+    uploadUrl: DEFAULT_UPLOAD_URL,
+    useCustomUploadUrl: false 
+  });
+});

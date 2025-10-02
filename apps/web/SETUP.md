@@ -50,7 +50,8 @@ This guide explains how to set up and deploy the Cursor Session Helper extension
 3. Enable "Developer mode" in the top right
 4. Drag and drop the downloaded .zip file into Chrome
 5. The extension icon will appear in your toolbar
-6. Click the icon and use "Capture Session Data" when needed
+6. Click the icon and configure the upload URL in the popup
+7. Use "Capture Session Data" when needed
 
 ## Troubleshooting
 
@@ -58,12 +59,14 @@ This guide explains how to set up and deploy the Cursor Session Helper extension
    - Ensure you're logged into Cursor
    - Check that you're on a cursor.sh domain
    - Verify the extension has the required permissions
+   - Confirm the upload URL is correctly set in the extension popup
 
 2. Upload failures:
    - Verify HTTPS connection
    - Check server logs for encryption errors
    - Ensure the encryption key is properly set
    - Verify database connectivity
+   - Confirm the upload URL is correct
 
 ## Security Best Practices
 

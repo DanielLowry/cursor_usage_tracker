@@ -163,17 +163,18 @@ export default function LoginHelperPage() {
 
                   <div className="mt-4">
                     <h5 className="font-medium text-gray-800">Extension configuration (one-time)</h5>
-                    <p className="text-sm text-gray-600 mt-2">Before using the extension for the first time, open its popup and ensure it is configured to upload captured session data to this server:</p>
+                    <p className="text-sm text-gray-600 mt-2">Before using the extension for the first time, open its popup and configure the upload URL:</p>
                     <ol className="ml-4 space-y-1 list-decimal list-inside text-sm text-gray-600">
-                      <li>Open the extension popup (click the extension icon) and look for a configuration or settings input.</li>
-                      <li>Set the <code>Upload URL</code> to your server's upload endpoint: <code>https://your-server.example.com/api/auth/upload-session</code> (replace with your server URL).</li>
-                      <li>Save the setting. The extension stores this value in <code>chrome.storage.local</code> under the key <code>uploadUrl</code>.</li>
-                      <li>Verify the extension shows a connected/ready state in the popup. If it reports "Extension not configured", re-open the popup and re-enter the URL.</li>
+                      <li>Open the extension popup (click the extension icon).</li>
+                      <li>In the configuration section, you'll see a pre-filled upload URL.</li>
+                      <li>If needed, modify the upload URL to match your server's upload endpoint.</li>
+                      <li>Click "Save Upload URL" to store the configuration.</li>
+                      <li>Verify the extension shows a connected/ready state in the popup.</li>
                       <li>Ensure the extension requests the permission to access <code>https://*.cursor.sh/*</code> domains (check the extension manifest via Developer mode). This is required to read cookies and storage from the Cursor site.</li>
                       <li>When configured, navigate to a <code>cursor.sh</code> page where you are logged in, open the extension popup and click "Capture Session Data". A success message should appear when the upload completes.</li>
                     </ol>
 
-                    <p className="text-xs text-gray-500 mt-2">If you manage multiple deployment environments, make sure the upload URL matches the environment (e.g., staging vs production).</p>
+                    <p className="text-xs text-gray-500 mt-2">If you manage multiple deployment environments, you can easily update the upload URL in the extension popup.</p>
                   </div>
 
                   <div className="mt-4">
