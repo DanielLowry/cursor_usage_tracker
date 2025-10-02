@@ -85,14 +85,12 @@ export default function LoginHelperPage() {
       <div className="max-w-md mx-auto">
         <div className="bg-white shadow rounded-lg p-6">
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900 mb-6">
-              Cursor Login Helper
-            </h1>
-            
+            <h1 className="text-2xl font-bold text-gray-900 mb-6">Cursor Login Helper</h1>
+
             {/* Auth Status Display */}
             <div className="mb-6">
               <h2 className="text-lg font-medium text-gray-900 mb-4">Authentication Status</h2>
-              
+
               {isLoading ? (
                 <div className="flex items-center justify-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -117,11 +115,9 @@ export default function LoginHelperPage() {
                       </div>
                     )}
                   </div>
-                  
-                  <p className="text-sm text-gray-500">
-                    Last checked: {new Date(authStatus.lastChecked).toLocaleString()}
-                  </p>
-                  
+
+                  <p className="text-sm text-gray-500">Last checked: {new Date(authStatus.lastChecked).toLocaleString()}</p>
+
                   {authStatus.error && (
                     <p className="text-sm text-red-600">{authStatus.error}</p>
                   )}
@@ -157,13 +153,38 @@ export default function LoginHelperPage() {
                 <div>
                   <h4 className="font-medium text-gray-800">Option 2: Browser Extension</h4>
                   <ol className="ml-4 space-y-1 list-decimal list-inside">
-                    <li>Click &quot;Download Browser Extension&quot; to get the extension</li>
+                    <li>Click "Download Browser Extension" to get the extension</li>
                     <li>Open Chrome and go to chrome://extensions/</li>
-                    <li>Enable &quot;Developer mode&quot; in the top right</li>
+                    <li>Enable "Developer mode" in the top right</li>
                     <li>Drag and drop the downloaded .zip file into Chrome</li>
-                    <li>Click the extension icon and &quot;Capture Session Data&quot;</li>
-                    <li>Return here and click &quot;Refresh Status&quot; to verify</li>
+                    <li>Click the extension icon and "Capture Session Data"</li>
+                    <li>Return here and click "Refresh Status" to verify</li>
                   </ol>
+
+                  <div className="mt-4">
+                    <h5 className="font-medium text-gray-800">Extension configuration (one-time)</h5>
+                    <p className="text-sm text-gray-600 mt-2">Before using the extension for the first time, open its popup and ensure it is configured to upload captured session data to this server:</p>
+                    <ol className="ml-4 space-y-1 list-decimal list-inside text-sm text-gray-600">
+                      <li>Open the extension popup (click the extension icon) and look for a configuration or settings input.</li>
+                      <li>Set the <code>Upload URL</code> to your server's upload endpoint: <code>https://your-server.example.com/api/auth/upload-session</code> (replace with your server URL).</li>
+                      <li>Save the setting. The extension stores this value in <code>chrome.storage.local</code> under the key <code>uploadUrl</code>.</li>
+                      <li>Verify the extension shows a connected/ready state in the popup. If it reports "Extension not configured", re-open the popup and re-enter the URL.</li>
+                      <li>Ensure the extension requests the permission to access <code>https://*.cursor.sh/*</code> domains (check the extension manifest via Developer mode). This is required to read cookies and storage from the Cursor site.</li>
+                      <li>When configured, navigate to a <code>cursor.sh</code> page where you are logged in, open the extension popup and click "Capture Session Data". A success message should appear when the upload completes.</li>
+                    </ol>
+
+                    <p className="text-xs text-gray-500 mt-2">If you manage multiple deployment environments, make sure the upload URL matches the environment (e.g., staging vs production).</p>
+                  </div>
+
+                  <div className="mt-4">
+                    <h5 className="font-medium text-gray-800">Troubleshooting</h5>
+                    <ul className="ml-4 space-y-1 list-disc list-inside text-sm text-gray-600">
+                      <li>If the popup shows "Extension not configured", re-enter the upload URL and save.</li>
+                      <li>If captures fail with "No Cursor session found", confirm you are signed into Cursor in the browser and on a <code>cursor.sh</code> tab.</li>
+                      <li>Check your server logs for requests to <code>/api/auth/upload-session</code> to confirm uploads are received.</li>
+                    </ul>
+                  </div>
+
                 </div>
               </div>
             </div>
