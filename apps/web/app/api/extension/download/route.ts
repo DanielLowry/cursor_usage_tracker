@@ -52,6 +52,19 @@ function countFilesRecursively(dirPath: string): number {
   return total;
 }
 
+// Helper: return a small sample of directory entries (top-level names, mark
+// directories with a trailing slash). Returns empty array on error or missing dir.
+function getDirectorySample(dirPath: string, maxEntries = 10): string[] {
+  try {
+    if (!fs.existsSync(dirPath)) return [];
+    const items = fs.readdirSync(dirPath, { withFileTypes: true });
+    return items.slice(0, maxEntries).map((it) => (it.isDirectory() ? `${it.name}/` : it.name));
+  } catch (err) {
+    console.error('[extension/download] Failed to sample directory', dirPath, err);
+    return [];
+  }
+}
+
 async function generateAndCache() {
   // Ensure icons are present before creating the archive; if missing, run the
   // repo's icon generation script (sync) so the produced zip always contains
@@ -122,6 +135,7 @@ async function generateAndCache() {
     const addPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension');
     console.log('[extension/download] Adding directory to archive:', addPath);
     const addPathFileCount = countFilesRecursively(addPath);
+    console.log('[extension/download] Cache-generation source dir check:', { addPath, exists: fs.existsSync(addPath), fileCount: addPathFileCount, sample: getDirectorySample(addPath) });
     if (addPathFileCount === 0) {
       const err = new Error('No files found to add to archive; aborting zip creation');
       console.error('[extension/download] ' + err.message);
@@ -244,6 +258,7 @@ export async function GET() {
 
     const streamAddPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension');
     const streamPathFileCount = countFilesRecursively(streamAddPath);
+    console.log('[extension/download] Streaming-source dir check:', { streamAddPath, exists: fs.existsSync(streamAddPath), fileCount: streamPathFileCount, sample: getDirectorySample(streamAddPath) });
     if (streamPathFileCount === 0) {
       const err = new Error('No files found to add to streaming archive; aborting streaming zip creation');
       console.error('[extension/download] ' + err.message);
