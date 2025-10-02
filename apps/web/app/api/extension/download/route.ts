@@ -149,6 +149,8 @@ async function generateAndCache() {
 }
 
 export async function GET() {
+
+  console.log('[extension/download] Request received: starting download handling');
   try {
     console.log('[extension/download] Request received: starting download handling');
     const requestStart = Date.now();
