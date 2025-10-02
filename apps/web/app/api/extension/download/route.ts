@@ -1,3 +1,5 @@
+export const runtime = 'nodejs';
+
 import fs from 'fs';
 import path from 'path';
 import { PassThrough, Readable as NodeReadable } from 'stream';
