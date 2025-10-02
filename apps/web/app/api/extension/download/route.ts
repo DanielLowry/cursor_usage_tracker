@@ -29,6 +29,20 @@ import { execFileSync } from 'child_process';
 import archiver from 'archiver';
 import { NextResponse } from 'next/server';
 
+// Resolve paths referring to the web package robustly. When the process CWD is
+// already the `apps/web` package this prevents doubling `apps/web` in joins.
+function resolveWebPath(...segments: string[]): string {
+  const cwd = process.cwd();
+  const webRel = path.join('apps', 'web');
+  // If we're already running with CWD ending in apps/web, use CWD directly
+  if (cwd.endsWith(webRel)) return path.join(cwd, ...segments);
+  // Prefer repository-root layout: <repo>/apps/web/...
+  const candidate = path.join(cwd, 'apps', 'web', ...segments);
+  if (fs.existsSync(candidate)) return candidate;
+  // Fallback to joining from CWD
+  return path.join(cwd, ...segments);
+}
+
 const CACHE_DIR = path.join(process.cwd(), 'public', 'dist');
 const CACHE_PATH = path.join(CACHE_DIR, 'cursor-session-helper.zip');
 const TMP_PATH = CACHE_PATH + '.tmp';
@@ -70,7 +84,7 @@ async function generateAndCache() {
   // repo's icon generation script (sync) so the produced zip always contains
   // the required `icons/*` files referenced by the manifest.
     function ensureIconsExist() {
-    const iconCheckPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension', 'icons', 'icon128.png');
+    const iconCheckPath = resolveWebPath('public', 'extension', 'icons', 'icon128.png');
     if (fs.existsSync(iconCheckPath)) return;
 
     try {
@@ -132,7 +146,7 @@ async function generateAndCache() {
     });
 
     archive.pipe(tmpStream);
-    const addPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension');
+    const addPath = resolveWebPath('public', 'extension');
     console.log('[extension/download] Adding directory to archive:', addPath);
     const addPathFileCount = countFilesRecursively(addPath);
     console.log('[extension/download] Cache-generation source dir check:', { addPath, exists: fs.existsSync(addPath), fileCount: addPathFileCount, sample: getDirectorySample(addPath) });
@@ -240,7 +254,7 @@ export async function GET() {
     archive.pipe(pass);
     // Ensure icons exist for the on-the-fly stream path as well.
     try {
-      const iconCheckPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension', 'icons', 'icon128.png');
+      const iconCheckPath = resolveWebPath('public', 'extension', 'icons', 'icon128.png');
       if (!fs.existsSync(iconCheckPath)) {
         const cwd = process.cwd();
         const scriptPath = cwd.endsWith(path.join('apps', 'web'))
@@ -256,7 +270,7 @@ export async function GET() {
       console.error('[extension/download] Failed to generate icons for streaming', err);
     }
 
-    const streamAddPath = path.join(process.cwd(), 'apps', 'web', 'public', 'extension');
+    const streamAddPath = resolveWebPath('public', 'extension');
     const streamPathFileCount = countFilesRecursively(streamAddPath);
     console.log('[extension/download] Streaming-source dir check:', { streamAddPath, exists: fs.existsSync(streamAddPath), fileCount: streamPathFileCount, sample: getDirectorySample(streamAddPath) });
     if (streamPathFileCount === 0) {
