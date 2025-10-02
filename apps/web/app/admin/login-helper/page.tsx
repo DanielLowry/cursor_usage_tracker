@@ -54,26 +54,7 @@ export default function LoginHelperPage() {
     }
   };
 
-  const launchLogin = async () => {
-    setIsLaunching(true);
-    try {
-      const response = await fetch('/api/auth/launch-login', { method: 'POST' });
-      const data = await response.json();
-      
-      if (data.success) {
-        // Wait a moment then re-check auth status
-        setTimeout(() => {
-          checkAuthStatus();
-        }, 2000);
-      } else {
-        alert('Failed to launch login window: ' + data.error);
-      }
-    } catch (error) {
-      alert('Failed to launch login window');
-    } finally {
-      setIsLaunching(false);
-    }
-  };
+  // Launch login removed: server-side headful login is no longer supported.
 
   // downloadAutomatedHelperScript
   // - Create an automated helper script that waits for authentication and
@@ -165,28 +146,14 @@ export default function LoginHelperPage() {
                 Download Browser Extension
               </button>
 
-              <button
-                onClick={launchLogin}
-                disabled={isLaunching || isLoading}
-                className="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLaunching ? 'Launching...' : 'Launch Cursor Login'}
-              </button>
+              {/* Launch cursor login removed */}
             </div>
 
             {/* Instructions */}
             <div className="mt-6 text-left">
               <h3 className="text-sm font-medium text-gray-900 mb-2">Instructions:</h3>
               <div className="text-sm text-gray-600 space-y-2">
-                <div>
-                  <h4 className="font-medium text-gray-800">Option 1: Server-side Login</h4>
-                  <ol className="ml-4 space-y-1 list-decimal list-inside">
-                    <li>Click &quot;Launch Cursor Login&quot; to open a browser window</li>
-                    <li>Complete the login process in the opened window</li>
-                    <li>Click &quot;Refresh Status&quot; to verify authentication</li>
-                    <li>The scraper will automatically use your saved session</li>
-                  </ol>
-                </div>
+                {/* Server-side login instructions removed */}
                 <div>
                   <h4 className="font-medium text-gray-800">Option 2: Browser Extension</h4>
                   <ol className="ml-4 space-y-1 list-decimal list-inside">
