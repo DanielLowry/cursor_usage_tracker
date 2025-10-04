@@ -5,7 +5,8 @@
   "description": "Securely captures Cursor session data for authorized administrators",
   "permissions": [
     "cookies",
-    "storage"
+    "storage",
+    "scripting"
   ],
   "host_permissions": [
   "https://cursor.com/*",
