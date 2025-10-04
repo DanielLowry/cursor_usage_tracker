@@ -119,8 +119,8 @@ export async function GET() {
       // Navigate with extended timeout and wait for navigation
       const navigationStartTime = Date.now();
       await page.goto(env.CURSOR_USAGE_URL, { 
-        waitUntil: 'networkidle',
-        timeout: 30000 
+        waitUntil: 'domcontentloaded',
+        timeout: 15000 
       });
       const navigationEndTime = Date.now();
       console.log(`Page navigation completed in ${navigationEndTime - navigationStartTime}ms`);
