@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { detectOS, generateFullyAutomatedPowershellScript, generateFullyAutomatedBashScript, filenameForOS, filenameForAutomatedOS } from '../../../lib/login-helper-scripts';
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -34,8 +33,6 @@ interface AuthStatus {
 export default function LoginHelperPage() {
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLaunching, setIsLaunching] = useState(false);
-  const [isDownloadingAutomated, setIsDownloadingAutomated] = useState(false);
 
   const checkAuthStatus = async () => {
     setIsLoading(true);
@@ -51,28 +48,6 @@ export default function LoginHelperPage() {
       });
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  // Launch login removed: server-side headful login is no longer supported.
-
-  // downloadAutomatedHelperScript
-  // - Create an automated helper script that waits for authentication and
-  //   attempts to capture session data automatically.
-  const downloadAutomatedHelperScript = async () => {
-    setIsDownloadingAutomated(true);
-    try {
-      const origin = window.location.origin;
-      const os = detectOS();
-
-      // The automated helper scripts were removed in favor of the browser extension.
-      // Inform the user and provide instructions to use the extension instead.
-      alert('Automated helper scripts have been removed. Please use the browser extension via "Download Browser Extension".');
-    } catch (err) {
-      console.error(err);
-      alert('Failed to prepare automated helper script');
-    } finally {
-      setIsDownloadingAutomated(false);
     }
   };
 
@@ -141,24 +116,21 @@ export default function LoginHelperPage() {
               >
                 Download Browser Extension
               </button>
-
-              {/* Launch cursor login removed */}
             </div>
 
             {/* Instructions */}
             <div className="mt-6 text-left">
               <h3 className="text-sm font-medium text-gray-900 mb-2">Instructions:</h3>
               <div className="text-sm text-gray-600 space-y-2">
-                {/* Server-side login instructions removed */}
                 <div>
                   <h4 className="font-medium text-gray-800">Option 2: Browser Extension</h4>
                   <ol className="ml-4 space-y-1 list-decimal list-inside">
-                    <li>Click "Download Browser Extension" to get the extension</li>
+                    <li>Click &quot;Download Browser Extension&quot; to get the extension</li>
                     <li>Open Chrome and go to chrome://extensions/</li>
-                    <li>Enable "Developer mode" in the top right</li>
+                    <li>Enable &quot;Developer mode&quot; in the top right</li>
                     <li>Drag and drop the downloaded .zip file into Chrome</li>
-                    <li>Click the extension icon and "Capture Session Data"</li>
-                    <li>Return here and click "Refresh Status" to verify</li>
+                    <li>Click the extension icon and &quot;Capture Session Data&quot;</li>
+                    <li>Return here and click &quot;Refresh Status&quot; to verify</li>
                   </ol>
 
                   <div className="mt-4">
@@ -166,12 +138,12 @@ export default function LoginHelperPage() {
                     <p className="text-sm text-gray-600 mt-2">Before using the extension for the first time, open its popup and configure the upload URL:</p>
                     <ol className="ml-4 space-y-1 list-decimal list-inside text-sm text-gray-600">
                       <li>Open the extension popup (click the extension icon).</li>
-                      <li>In the configuration section, you'll see a pre-filled upload URL.</li>
-                      <li>If needed, modify the upload URL to match your server's upload endpoint.</li>
-                      <li>Click "Save Upload URL" to store the configuration.</li>
+                      <li>In the configuration section, you&apos;ll see a pre-filled upload URL.</li>
+                      <li>If needed, modify the upload URL to match your server&apos;s upload endpoint.</li>
+                      <li>Click &quot;Save Upload URL&quot; to store the configuration.</li>
                       <li>Verify the extension shows a connected/ready state in the popup.</li>
                       <li>Ensure the extension requests the permission to access <code>https://*.cursor.sh/*</code> domains (check the extension manifest via Developer mode). This is required to read cookies and storage from the Cursor site.</li>
-                      <li>When configured, navigate to a <code>cursor.sh</code> page where you are logged in, open the extension popup and click "Capture Session Data". A success message should appear when the upload completes.</li>
+                      <li>When configured, navigate to a <code>cursor.sh</code> page where you are logged in, open the extension popup and click &quot;Capture Session Data&quot;. A success message should appear when the upload completes.</li>
                     </ol>
 
                     <p className="text-xs text-gray-500 mt-2">If you manage multiple deployment environments, you can easily update the upload URL in the extension popup.</p>
@@ -180,8 +152,8 @@ export default function LoginHelperPage() {
                   <div className="mt-4">
                     <h5 className="font-medium text-gray-800">Troubleshooting</h5>
                     <ul className="ml-4 space-y-1 list-disc list-inside text-sm text-gray-600">
-                      <li>If the popup shows "Extension not configured", re-enter the upload URL and save.</li>
-                      <li>If captures fail with "No Cursor session found", confirm you are signed into Cursor in the browser and on a <code>cursor.sh</code> tab.</li>
+                      <li>If the popup shows &quot;Extension not configured&quot;, re-enter the upload URL and save.</li>
+                      <li>If captures fail with &quot;No Cursor session found&quot;, confirm you are signed into Cursor in the browser and on a <code>cursor.sh</code> tab.</li>
                       <li>Check your server logs for requests to <code>/api/auth/upload-session</code> to confirm uploads are received.</li>
                     </ul>
                   </div>
