@@ -8,25 +8,51 @@ class FileSessionStore {
 
   constructor() {
     this.sessionsDir = path.join(process.cwd(), 'sessions');
-    fs.mkdirSync(this.sessionsDir, { recursive: true });
+    
+    try {
+      fs.mkdirSync(this.sessionsDir, { recursive: true });
+      console.log(`Sessions directory initialized: ${this.sessionsDir}`);
+    } catch (error) {
+      console.error('Failed to create sessions directory:', error);
+    }
   }
 
   // Save encrypted session
   save(encryptedPayload: any) {
-    // Clean up old sessions first
-    this.cleanup();
+    try {
+      // Clean up old sessions first
+      this.cleanup();
 
-    // Generate unique filename
-    const filename = `session_${crypto.randomBytes(16).toString('hex')}.json`;
-    const filePath = path.join(this.sessionsDir, filename);
+      // Generate unique filename
+      const filename = `session_${crypto.randomBytes(16).toString('hex')}.json`;
+      const filePath = path.join(this.sessionsDir, filename);
 
-    // Write with secure permissions
-    fs.writeFileSync(filePath, JSON.stringify(encryptedPayload), {
-      encoding: 'utf8',
-      mode: 0o600 // Read/write only for owner
-    });
+      // Prepare logging details
+      const fileSize = Buffer.byteLength(JSON.stringify(encryptedPayload), 'utf8');
+      const logDetails = {
+        filename,
+        timestamp: new Date().toISOString(),
+        payloadSize: fileSize,
+        payloadKeys: Object.keys(encryptedPayload)
+      };
 
-    return filename;
+      // Write with secure permissions
+      fs.writeFileSync(filePath, JSON.stringify(encryptedPayload), {
+        encoding: 'utf8',
+        mode: 0o600 // Read/write only for owner
+      });
+
+      // Log successful file save
+      console.log('Session file saved:', JSON.stringify(logDetails, null, 2));
+
+      return filename;
+    } catch (error) {
+      console.error('Failed to save session file:', {
+        error: error instanceof Error ? error.message : String(error),
+        payload: JSON.stringify(encryptedPayload).slice(0, 500) // Limit logged payload size
+      });
+      throw error;
+    }
   }
 
   // Clean up sessions older than 24 hours
@@ -34,6 +60,12 @@ class FileSessionStore {
     try {
       const files = fs.readdirSync(this.sessionsDir);
       
+      const cleanupLog = {
+        timestamp: new Date().toISOString(),
+        totalFiles: files.length,
+        deletedFiles: 0
+      };
+
       files.forEach(file => {
         const filePath = path.join(this.sessionsDir, file);
         const stats = fs.statSync(filePath);
@@ -42,8 +74,13 @@ class FileSessionStore {
         const maxAge = maxAgeHours * 60 * 60 * 1000;
         if (Date.now() - stats.mtime.getTime() > maxAge) {
           fs.unlinkSync(filePath);
+          cleanupLog.deletedFiles++;
         }
       });
+
+      if (cleanupLog.deletedFiles > 0) {
+        console.log('Session cleanup completed:', JSON.stringify(cleanupLog, null, 2));
+      }
     } catch (error) {
       console.error('Session cleanup error:', error);
     }
