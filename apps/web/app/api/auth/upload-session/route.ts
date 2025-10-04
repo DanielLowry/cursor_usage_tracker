@@ -20,9 +20,6 @@ class FileSessionStore {
   // Save encrypted session
   save(encryptedPayload: any) {
     try {
-      // Clean up old sessions first
-      this.cleanup();
-
       // Generate unique filename
       const filename = `session_${crypto.randomBytes(16).toString('hex')}.json`;
       const filePath = path.join(this.sessionsDir, filename);
@@ -32,8 +29,7 @@ class FileSessionStore {
       const logDetails = {
         filename,
         timestamp: new Date().toISOString(),
-        payloadSize: fileSize,
-        payloadKeys: Object.keys(encryptedPayload)
+        payloadSize: fileSize
       };
 
       // Write with secure permissions
@@ -48,41 +44,9 @@ class FileSessionStore {
       return filename;
     } catch (error) {
       console.error('Failed to save session file:', {
-        error: error instanceof Error ? error.message : String(error),
-        payload: JSON.stringify(encryptedPayload).slice(0, 500) // Limit logged payload size
+        error: error instanceof Error ? error.message : String(error)
       });
       throw error;
-    }
-  }
-
-  // Clean up sessions older than 24 hours
-  cleanup(maxAgeHours = 24) {
-    try {
-      const files = fs.readdirSync(this.sessionsDir);
-      
-      const cleanupLog = {
-        timestamp: new Date().toISOString(),
-        totalFiles: files.length,
-        deletedFiles: 0
-      };
-
-      files.forEach(file => {
-        const filePath = path.join(this.sessionsDir, file);
-        const stats = fs.statSync(filePath);
-        
-        // Delete files older than specified hours
-        const maxAge = maxAgeHours * 60 * 60 * 1000;
-        if (Date.now() - stats.mtime.getTime() > maxAge) {
-          fs.unlinkSync(filePath);
-          cleanupLog.deletedFiles++;
-        }
-      });
-
-      if (cleanupLog.deletedFiles > 0) {
-        console.log('Session cleanup completed:', JSON.stringify(cleanupLog, null, 2));
-      }
-    } catch (error) {
-      console.error('Session cleanup error:', error);
     }
   }
 }
