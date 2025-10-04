@@ -99,89 +99,63 @@ export async function GET() {
       headless: true,
     });
 
+    // Replace lines 102-197 with improved Playwright-based authentication check
     try {
       const page = await context.newPage();
       
-      // Add more detailed logging for live check
       console.log('Navigating to usage URL:', env.CURSOR_USAGE_URL);
       
-      // Race condition to check login status
-      const loginCheckPromise = page.evaluate(() => {
-        return new Promise((resolve) => {
-          // Check for login/logout indicators
-          const loginSelectors = [
-            '.user-profile',
-            '#dashboard-content',
-            // Add more specific login success selectors
-          ];
-          
-          const loginFailSelectors = [
-            '.login-form',
-            '[data-testid="login-page"]',
-            // Add more specific login failure selectors
-          ];
+      // Define login and logout selectors
+      const loginSelectors = [
+        '.user-profile',
+        '#dashboard-content',
+      ];
+      
+      const loginFailSelectors = [
+        '.login-form',
+        '[data-testid="login-page"]',
+      ];
 
-          // Function to check login status
-          const checkLoginStatus = () => {
-            const isLoggedIn = loginSelectors.some(selector => document.querySelector(selector));
-            const isLoginPage = loginFailSelectors.some(selector => document.querySelector(selector));
-            
-            if (isLoggedIn) {
-              console.log('Login detected via success selectors:', 
-                loginSelectors.filter(selector => document.querySelector(selector))
-              );
-              resolve(true);
-            }
-            if (isLoginPage) {
-              console.log('Login page detected via fail selectors:', 
-                loginFailSelectors.filter(selector => document.querySelector(selector))
-              );
-              resolve(false);
-            }
-          };
-
-          // Check immediately and then set up a mutation observer
-          checkLoginStatus();
-
-          const observer = new MutationObserver(checkLoginStatus);
-          observer.observe(document.body, { 
-            childList: true, 
-            subtree: true 
-          });
-
-          // Timeout to prevent hanging
-          setTimeout(() => {
-            observer.disconnect();
-            console.log('Login check timed out after 10 seconds');
-            resolve(null);
-          }, 10000);
-        });
-      });
-
-      // Navigate with domcontentloaded and shorter timeout
-      console.log('Starting page navigation to:', env.CURSOR_USAGE_URL);
+      // Navigate with extended timeout and wait for navigation
       const navigationStartTime = Date.now();
       await page.goto(env.CURSOR_USAGE_URL, { 
-        waitUntil: 'domcontentloaded',
-        timeout: 15000 
+        waitUntil: 'networkidle',
+        timeout: 30000 
       });
       const navigationEndTime = Date.now();
       console.log(`Page navigation completed in ${navigationEndTime - navigationStartTime}ms`);
 
-      // Wait for login check to resolve
-      const isLoggedIn = await loginCheckPromise;
-      console.log('Login Check Result (raw):', isLoggedIn);
+      // Attempt to detect login status using Playwright's native waiters
+      let loginStatus = false;
+      try {
+        // Race between login success and login page selectors
+        const loginResult = await Promise.race([
+          // Wait for login success indicators
+          page.waitForSelector(loginSelectors.join(', '), { 
+            state: 'visible', 
+            timeout: 10000 
+          }).then(() => true).catch(() => false),
+          
+          // Wait for login page indicators
+          page.waitForSelector(loginFailSelectors.join(', '), { 
+            state: 'visible', 
+            timeout: 10000 
+          }).then(() => false).catch(() => null)
+        ]);
 
-      // Ensure isLoggedIn is a boolean
-      const loginStatus = isLoggedIn ?? false;
-      console.log('Login Status (resolved):', loginStatus, 
-        loginStatus === null ? '(timed out)' : 
-        loginStatus ? '(logged in)' : '(not logged in)'
-      );
+        // Resolve login status
+        loginStatus = loginResult === true;
+        console.log('Login Status (resolved):', loginStatus, 
+          loginStatus ? '(logged in)' : '(not logged in)'
+        );
+      } catch (detectionError) {
+        console.warn('Login status detection inconclusive:', detectionError);
+        loginStatus = false;
+      }
 
       // Save the authentication state
       const authStateToSave = {
-        isAuthenticated: loginStatus === true,
+        isAuthenticated: loginStatus,
         lastChecked: new Date().toISOString(),
         source: 'live_check' as const,
         ...(loginStatus ? {} : { error: 'Cannot access usage data - not authenticated' })
@@ -189,7 +163,7 @@ export async function GET() {
       await authManager.saveState(authStateToSave);
 
       const responseBody = {
-        isAuthenticated: loginStatus === true,
+        isAuthenticated: loginStatus,
         lastChecked: new Date().toISOString(),
         source: 'live_check' as const,
         ...(loginStatus ? {} : { error: 'Cannot access usage data - not authenticated' })
