@@ -9,7 +9,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // Default upload URL 
-const DEFAULT_UPLOAD_URL = 'https://cursor.sh/api/auth/upload-session';
+const DEFAULT_UPLOAD_URL = 'http://192.168.0.1:3000/api/auth/upload-session';
 
 async function captureCursorSession() {
   try {
