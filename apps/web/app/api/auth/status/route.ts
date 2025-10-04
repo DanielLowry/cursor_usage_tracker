@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
-import { chromium } from 'playwright';
+// Ensure this route runs in the Node runtime and import Playwright dynamically
+export const runtime = 'node';
+
+// Playwright is a heavy native dependency that should not be bundled for the Edge/worker runtime.
+// Import it dynamically inside the handler so the Next build step doesn't try to bundle it.
 import { z } from 'zod';
 import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
@@ -87,6 +91,10 @@ export async function GET() {
 
     // If no valid stored state, do a live check
     console.log('Attempting live authentication check');
+
+    // Dynamic import to avoid bundling Playwright into the edge/worker build output
+    const { chromium } = await import('playwright');
+
     const context = await chromium.launchPersistentContext('./data/temp-profile', {
       headless: true,
     });
@@ -171,49 +179,51 @@ export async function GET() {
         loginStatus ? '(logged in)' : '(not logged in)'
       );
 
-      // Close the context to free up resources
-      await context.close();
-
       // Save the authentication state
-      await authManager.saveState({
-        isAuthenticated: loginStatus,
+      const authStateToSave = {
+        isAuthenticated: loginStatus === true,
         lastChecked: new Date().toISOString(),
-        source: 'live_check',
+        source: 'live_check' as const,
         ...(loginStatus ? {} : { error: 'Cannot access usage data - not authenticated' })
-      });
+      };
+      await authManager.saveState(authStateToSave);
 
-      return NextResponse.json({
-        isAuthenticated: loginStatus,
+      const responseBody = {
+        isAuthenticated: loginStatus === true,
         lastChecked: new Date().toISOString(),
-        source: 'live_check',
+        source: 'live_check' as const,
         ...(loginStatus ? {} : { error: 'Cannot access usage data - not authenticated' })
-      });
+      };
+      return NextResponse.json(responseBody);
 
     } catch (liveCheckError) {
       console.error('Live authentication check failed:', liveCheckError);
       
       // Save failed state
-      await authManager.saveState({
+      const failedAuthState = {
         isAuthenticated: false,
         lastChecked: new Date().toISOString(),
-        source: 'live_check',
+        source: 'live_check' as const,
         error: `Live check failed: ${liveCheckError instanceof Error ? liveCheckError.message : 'Unknown error'}`
-      });
+      };
+      await authManager.saveState(failedAuthState);
 
-      return NextResponse.json({
+      const errorResponse = {
         isAuthenticated: false,
         lastChecked: new Date().toISOString(),
-        source: 'live_check',
+        source: 'live_check' as const,
         error: 'Live authentication check failed'
-      }, { status: 500 });
+      };
+      return NextResponse.json(errorResponse, { status: 500 });
     }
   } catch (error) {
     console.error('Complete authentication status check failed:', error);
     
-    return NextResponse.json({
+    const finalErrorResponse = {
       isAuthenticated: false,
       lastChecked: new Date().toISOString(),
       error: 'Comprehensive authentication check failed'
-    }, { status: 500 });
+    };
+    return NextResponse.json(finalErrorResponse, { status: 500 });
   }
 }
