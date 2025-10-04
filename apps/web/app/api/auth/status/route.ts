@@ -11,8 +11,11 @@ const envSchema = z.object({
 
 export async function GET() {
   try {
+    console.log('Starting authentication status check at:', new Date().toISOString());
+
     const parsed = envSchema.safeParse(process.env);
     if (!parsed.success) {
+      console.error('Environment validation failed:', parsed.error.message);
       return NextResponse.json({
         isAuthenticated: false,
         lastChecked: new Date().toISOString(),
@@ -20,7 +23,10 @@ export async function GET() {
       }, { status: 500 });
     }
     const env = parsed.data;
+    console.log('Environment validated successfully');
+
     const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
+    console.log('CursorAuthManager initialized with state dir:', env.CURSOR_AUTH_STATE_DIR);
 
     // First, check the session file
     const mostRecentSession = sessionStore.readSessionFile();
@@ -33,35 +39,54 @@ export async function GET() {
       console.log('No session file found');
     }
 
-    // First check the stored state - but only trust it if it's very recent (within 5 minutes)
-    // and only if it was verified by a successful live check
+    // Load stored authentication state
     const storedState = await authManager.loadState();
-    console.log('Stored State:', JSON.stringify(storedState, null, 2));
+    console.log('Loaded Stored State:', JSON.stringify(storedState, null, 2));
 
-    if (storedState?.isAuthenticated && !(await authManager.isSessionExpired())) {
+    // Detailed logging for state check
+    if (storedState?.isAuthenticated) {
       const lastChecked = new Date(storedState.lastChecked);
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       
-      console.log('State Check Details:', {
+      const stateCheckDetails = {
         lastChecked: lastChecked.toISOString(),
         fiveMinutesAgo: fiveMinutesAgo.toISOString(),
         isRecent: lastChecked > fiveMinutesAgo,
         source: storedState.source,
         hasError: !!storedState.error
-      });
+      };
+      
+      console.log('State Check Details:', JSON.stringify(stateCheckDetails, null, 2));
 
-      // Only trust stored state if it's very recent (5 minutes) and was from a successful live check
-      if (lastChecked > fiveMinutesAgo && storedState.source === 'live_check' && !storedState.error) {
+      // Detailed conditions for trusting stored state
+      const isValidStoredState = 
+        lastChecked > fiveMinutesAgo && 
+        storedState.source === 'live_check' && 
+        !storedState.error;
+
+      console.log('Is Stored State Valid:', isValidStoredState);
+
+      if (isValidStoredState) {
+        console.log('Returning authenticated state from stored state');
         return NextResponse.json({
           isAuthenticated: true,
           lastChecked: storedState.lastChecked,
           source: 'stored_state',
           sessionFile: mostRecentSession?.filename
         });
+      } else {
+        console.log('Stored state is not valid. Reasons:', {
+          notRecent: lastChecked <= fiveMinutesAgo,
+          wrongSource: storedState.source !== 'live_check',
+          hasError: !!storedState.error
+        });
       }
+    } else {
+      console.log('No valid stored authentication state found');
     }
 
     // If no valid stored state, do a live check
+    console.log('Attempting live authentication check');
     const context = await chromium.launchPersistentContext('./data/temp-profile', {
       headless: true,
     });
@@ -69,81 +94,69 @@ export async function GET() {
     try {
       const page = await context.newPage();
       
-      // Apply any saved cookies first
-      await authManager.applySessionCookies(context);
-      
-      // Navigate to the dashboard and check if we're redirected to login
+      // Add more detailed logging for live check
+      console.log('Navigating to usage URL:', env.CURSOR_USAGE_URL);
       await page.goto(env.CURSOR_USAGE_URL, { 
-        waitUntil: 'domcontentloaded',
-        timeout: 10000 
+        waitUntil: 'networkidle',
+        timeout: 30000 
       });
 
-      // Check if we can actually access the usage data
-      const currentUrl = page.url();
-      
-      // Wait for the page to load and check for usage data or login redirect
-      await page.waitForTimeout(3000); // Give time for the dashboard to load
-      
-      // Check if we're redirected to login
-      const isRedirectedToLogin = currentUrl.includes('login') || 
-                                 currentUrl.includes('auth') || 
-                                 currentUrl.includes('authenticator.cursor.sh');
-      
-      // If not redirected, check if we can see usage data (not just the loading screen)
-      let hasUsageData = false;
-      if (!isRedirectedToLogin) {
-        try {
-          // Look for usage-related elements that would indicate we're actually logged in
-          // and can see the dashboard content
-          const usageElements = await page.locator('[data-testid*="usage"], .usage, [class*="usage"], [id*="usage"]').count();
-          const hasDashboardContent = await page.locator('text=Loading Dashboard').count() === 0;
-          const hasUserInfo = await page.locator('text=@').count() > 0; // Look for email indicator
-          
-          hasUsageData = usageElements > 0 || (hasDashboardContent && hasUserInfo);
-        } catch (error) {
-          console.warn('Error checking for usage data:', error);
-        }
-      }
-      
-      const isAuthenticated = !isRedirectedToLogin && hasUsageData;
+      // Check for authentication indicators
+      const isLoggedIn = await page.evaluate(() => {
+        // Add specific checks for being logged in
+        const loginIndicators = [
+          document.querySelector('.user-profile'),
+          document.querySelector('#dashboard-content'),
+          // Add more specific selectors that indicate being logged in
+        ];
+        return loginIndicators.some(indicator => indicator !== null);
+      });
 
-      // Update stored state with source information
-      const errorMessage = isAuthenticated ? undefined : 
-        (isRedirectedToLogin ? 'Redirected to login - session expired' : 'Cannot access usage data - not authenticated');
-      
-      // Save the full state including source
-      const currentState = await authManager.loadState();
-      const newState = {
-        isAuthenticated,
-        lastChecked: new Date().toISOString(),
-        source: 'live_check' as const,
-        sessionCookies: currentState?.sessionCookies,
-        userAgent: currentState?.userAgent,
-        lastLogin: currentState?.lastLogin,
-        expiresAt: currentState?.expiresAt,
-        ...(errorMessage && { error: errorMessage }),
-      };
-      await authManager.saveState(newState);
+      console.log('Live Check - Is Logged In:', isLoggedIn);
 
-      // When returning the final response, include the session filename if available
-      return NextResponse.json({
-        isAuthenticated,
+      // Close the context to free up resources
+      await context.close();
+
+      // Save the authentication state
+      await authManager.saveState({
+        isAuthenticated: isLoggedIn,
         lastChecked: new Date().toISOString(),
         source: 'live_check',
-        sessionFile: mostRecentSession?.filename,
-        ...(isAuthenticated ? {} : { error: errorMessage })
+        ...(isLoggedIn ? {} : { error: 'Cannot access usage data - not authenticated' })
       });
 
-    } finally {
-      await context.close();
-    }
+      return NextResponse.json({
+        isAuthenticated: isLoggedIn,
+        lastChecked: new Date().toISOString(),
+        source: 'live_check',
+        ...(isLoggedIn ? {} : { error: 'Cannot access usage data - not authenticated' })
+      });
 
+    } catch (liveCheckError) {
+      console.error('Live authentication check failed:', liveCheckError);
+      
+      // Save failed state
+      await authManager.saveState({
+        isAuthenticated: false,
+        lastChecked: new Date().toISOString(),
+        source: 'live_check',
+        error: `Live check failed: ${liveCheckError instanceof Error ? liveCheckError.message : 'Unknown error'}`
+      });
+
+      return NextResponse.json({
+        isAuthenticated: false,
+        lastChecked: new Date().toISOString(),
+        source: 'live_check',
+        error: 'Live authentication check failed'
+      }, { status: 500 });
+    }
   } catch (error) {
-    console.error('Auth status check failed:', error);
+    console.error('Complete authentication status check failed:', error);
+    
     return NextResponse.json({
       isAuthenticated: false,
       lastChecked: new Date().toISOString(),
-      error: `Auth check failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      error: 'Comprehensive authentication check failed'
     }, { status: 500 });
   }
 }
