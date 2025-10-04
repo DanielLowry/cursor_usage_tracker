@@ -1,75 +1,5 @@
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
-
-class FileSessionStore {
-  private sessionsDir: string;
-
-  constructor() {
-    this.sessionsDir = path.join(process.cwd(), 'sessions');
-    
-    try {
-      fs.mkdirSync(this.sessionsDir, { recursive: true });
-      console.log(`Sessions directory initialized: ${this.sessionsDir}`);
-    } catch (error) {
-      console.error('Failed to create sessions directory:', error);
-    }
-  }
-
-  // Save encrypted session
-  save(encryptedPayload: any) {
-    try {
-      // Generate unique filename
-      const filename = `session_${crypto.randomBytes(16).toString('hex')}.json`;
-      const filePath = path.join(this.sessionsDir, filename);
-
-      // Prepare logging details
-      const fileSize = Buffer.byteLength(JSON.stringify(encryptedPayload), 'utf8');
-      const logDetails = {
-        filename,
-        timestamp: new Date().toISOString(),
-        payloadSize: fileSize
-      };
-
-      // Write with secure permissions
-      fs.writeFileSync(filePath, JSON.stringify(encryptedPayload), {
-        encoding: 'utf8',
-        mode: 0o600 // Read/write only for owner
-      });
-
-      // Log successful file save
-      console.log('Session file saved:', JSON.stringify(logDetails, null, 2));
-
-      return filename;
-    } catch (error) {
-      console.error('Failed to save session file:', {
-        error: error instanceof Error ? error.message : String(error)
-      });
-      throw error;
-    }
-  }
-}
-
-const sessionStore = new FileSessionStore();
-
-// Handle CORS preflight requests
-export async function OPTIONS(request: Request) {
-  const allowedOrigin = request.headers.get('origin');
-  
-  // Allow Chrome extension origins
-  const isChromeExtension = allowedOrigin && allowedOrigin.startsWith('chrome-extension://');
-  
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': isChromeExtension ? allowedOrigin : '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Max-Age': '86400', // Cache preflight response for 24 hours
-    }
-  });
-}
+import { sessionStore } from '../../../../lib/utils/file-session-store';
 
 export async function POST(request: Request) {
   try {
@@ -150,4 +80,22 @@ export async function POST(request: Request) {
     console.error('Session upload failed:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+}
+
+// Handle CORS preflight requests
+export async function OPTIONS(request: Request) {
+  const allowedOrigin = request.headers.get('origin');
+  
+  // Allow Chrome extension origins
+  const isChromeExtension = allowedOrigin && allowedOrigin.startsWith('chrome-extension://');
+  
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': isChromeExtension ? allowedOrigin : '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400', // Cache preflight response for 24 hours
+    }
+  });
 }

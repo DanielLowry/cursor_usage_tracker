@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { chromium } from 'playwright';
 import { z } from 'zod';
 import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
+import { sessionStore } from '../../../../lib/utils/file-session-store';
 
 const envSchema = z.object({
   CURSOR_AUTH_STATE_DIR: z.string().min(1).default('./data'),
@@ -21,6 +22,12 @@ export async function GET() {
     const env = parsed.data;
     const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
 
+    // First, check the session file
+    const mostRecentSession = sessionStore.readSessionFile();
+    if (mostRecentSession) {
+      console.log('Found session file:', mostRecentSession.filename);
+    }
+
     // First check the stored state - but only trust it if it's very recent (within 5 minutes)
     // and only if it was verified by a successful live check
     const storedState = await authManager.loadState();
@@ -33,7 +40,8 @@ export async function GET() {
         return NextResponse.json({
           isAuthenticated: true,
           lastChecked: storedState.lastChecked,
-          source: 'stored_state'
+          source: 'stored_state',
+          sessionFile: mostRecentSession?.filename
         });
       }
     }
@@ -102,10 +110,12 @@ export async function GET() {
       };
       await authManager.saveState(newState);
 
+      // When returning the final response, include the session filename if available
       return NextResponse.json({
         isAuthenticated,
         lastChecked: new Date().toISOString(),
         source: 'live_check',
+        sessionFile: mostRecentSession?.filename,
         ...(isAuthenticated ? {} : { error: errorMessage })
       });
 
