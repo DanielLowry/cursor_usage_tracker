@@ -118,8 +118,18 @@ export async function GET() {
             const isLoggedIn = loginSelectors.some(selector => document.querySelector(selector));
             const isLoginPage = loginFailSelectors.some(selector => document.querySelector(selector));
             
-            if (isLoggedIn) resolve(true);
-            if (isLoginPage) resolve(false);
+            if (isLoggedIn) {
+              console.log('Login detected via success selectors:', 
+                loginSelectors.filter(selector => document.querySelector(selector))
+              );
+              resolve(true);
+            }
+            if (isLoginPage) {
+              console.log('Login page detected via fail selectors:', 
+                loginFailSelectors.filter(selector => document.querySelector(selector))
+              );
+              resolve(false);
+            }
           };
 
           // Check immediately and then set up a mutation observer
@@ -134,23 +144,32 @@ export async function GET() {
           // Timeout to prevent hanging
           setTimeout(() => {
             observer.disconnect();
+            console.log('Login check timed out after 10 seconds');
             resolve(null);
           }, 10000);
         });
       });
 
       // Navigate with domcontentloaded and shorter timeout
+      console.log('Starting page navigation to:', env.CURSOR_USAGE_URL);
+      const navigationStartTime = Date.now();
       await page.goto(env.CURSOR_USAGE_URL, { 
         waitUntil: 'domcontentloaded',
         timeout: 15000 
       });
+      const navigationEndTime = Date.now();
+      console.log(`Page navigation completed in ${navigationEndTime - navigationStartTime}ms`);
 
       // Wait for login check to resolve
       const isLoggedIn = await loginCheckPromise;
-      console.log('Login Check Result:', isLoggedIn);
+      console.log('Login Check Result (raw):', isLoggedIn);
 
       // Ensure isLoggedIn is a boolean
       const loginStatus = isLoggedIn ?? false;
+      console.log('Login Status (resolved):', loginStatus, 
+        loginStatus === null ? '(timed out)' : 
+        loginStatus ? '(logged in)' : '(not logged in)'
+      );
 
       // Close the context to free up resources
       await context.close();
