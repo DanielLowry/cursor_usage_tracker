@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
     if (!ENCRYPTION_KEY) {
       console.error('SESSION_ENCRYPTION_KEY not set');
-      return NextResponse.json({ error: 'Server not configured' }, { 
+      return NextResponse.json({ error: 'Server not configured - no encryption key provided' }, { 
         status: 500,
         headers: responseHeaders 
       });
