@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
+import crypto from 'crypto';
 
 export async function POST(request: Request) {
   try {
