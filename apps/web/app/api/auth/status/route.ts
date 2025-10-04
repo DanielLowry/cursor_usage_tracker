@@ -25,16 +25,31 @@ export async function GET() {
     // First, check the session file
     const mostRecentSession = sessionStore.readSessionFile();
     if (mostRecentSession) {
-      console.log('Found session file:', mostRecentSession.filename);
+      console.log('Found session file:', JSON.stringify({
+        filename: mostRecentSession.filename,
+        createdAt: mostRecentSession.data.createdAt
+      }, null, 2));
+    } else {
+      console.log('No session file found');
     }
 
     // First check the stored state - but only trust it if it's very recent (within 5 minutes)
     // and only if it was verified by a successful live check
     const storedState = await authManager.loadState();
+    console.log('Stored State:', JSON.stringify(storedState, null, 2));
+
     if (storedState?.isAuthenticated && !(await authManager.isSessionExpired())) {
       const lastChecked = new Date(storedState.lastChecked);
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       
+      console.log('State Check Details:', {
+        lastChecked: lastChecked.toISOString(),
+        fiveMinutesAgo: fiveMinutesAgo.toISOString(),
+        isRecent: lastChecked > fiveMinutesAgo,
+        source: storedState.source,
+        hasError: !!storedState.error
+      });
+
       // Only trust stored state if it's very recent (5 minutes) and was from a successful live check
       if (lastChecked > fiveMinutesAgo && storedState.source === 'live_check' && !storedState.error) {
         return NextResponse.json({
