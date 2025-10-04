@@ -1,5 +1,56 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+
+class FileSessionStore {
+  private sessionsDir: string;
+
+  constructor() {
+    this.sessionsDir = path.join(process.cwd(), 'sessions');
+    fs.mkdirSync(this.sessionsDir, { recursive: true });
+  }
+
+  // Save encrypted session
+  save(encryptedPayload: any) {
+    // Clean up old sessions first
+    this.cleanup();
+
+    // Generate unique filename
+    const filename = `session_${crypto.randomBytes(16).toString('hex')}.json`;
+    const filePath = path.join(this.sessionsDir, filename);
+
+    // Write with secure permissions
+    fs.writeFileSync(filePath, JSON.stringify(encryptedPayload), {
+      encoding: 'utf8',
+      mode: 0o600 // Read/write only for owner
+    });
+
+    return filename;
+  }
+
+  // Clean up sessions older than 24 hours
+  cleanup(maxAgeHours = 24) {
+    try {
+      const files = fs.readdirSync(this.sessionsDir);
+      
+      files.forEach(file => {
+        const filePath = path.join(this.sessionsDir, file);
+        const stats = fs.statSync(filePath);
+        
+        // Delete files older than specified hours
+        const maxAge = maxAgeHours * 60 * 60 * 1000;
+        if (Date.now() - stats.mtime.getTime() > maxAge) {
+          fs.unlinkSync(filePath);
+        }
+      });
+    } catch (error) {
+      console.error('Session cleanup error:', error);
+    }
+  }
+}
+
+const sessionStore = new FileSessionStore();
 
 // Handle CORS preflight requests
 export async function OPTIONS(request: Request) {
@@ -85,11 +136,13 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString()
     };
 
-    // Store the encrypted data (implement your storage solution here)
-    // Example placeholder:
-    // await db.sessions.create({ data: { payload: JSON.stringify(payload) } });
+    // Save the encrypted session to filesystem
+    const sessionFilename = sessionStore.save(payload);
 
-    return NextResponse.json({ success: true }, { 
+    return NextResponse.json({ 
+      success: true, 
+      sessionFilename 
+    }, { 
       headers: responseHeaders 
     });
   } catch (error) {
