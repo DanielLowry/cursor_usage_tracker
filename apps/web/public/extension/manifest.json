@@ -6,7 +6,8 @@
   "permissions": [
     "cookies",
     "storage",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
   "https://cursor.com/*",
