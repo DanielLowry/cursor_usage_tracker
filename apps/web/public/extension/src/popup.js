@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const configStatusDiv = document.getElementById('configStatus');
 
   // Default upload URL (can be overridden)
-  const DEFAULT_UPLOAD_URL = 'https://cursor.sh/api/auth/upload-session';
+  const DEFAULT_UPLOAD_URL = 'http://192.168.0.1:3000/api/auth/upload-session';
 
   // Load and display current upload URL
   chrome.storage.local.get(['uploadUrl', 'useCustomUploadUrl'], (result) => {
