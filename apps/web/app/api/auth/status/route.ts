@@ -96,40 +96,78 @@ export async function GET() {
       
       // Add more detailed logging for live check
       console.log('Navigating to usage URL:', env.CURSOR_USAGE_URL);
+      
+      // Race condition to check login status
+      const loginCheckPromise = page.evaluate(() => {
+        return new Promise((resolve) => {
+          // Check for login/logout indicators
+          const loginSelectors = [
+            '.user-profile',
+            '#dashboard-content',
+            // Add more specific login success selectors
+          ];
+          
+          const loginFailSelectors = [
+            '.login-form',
+            '[data-testid="login-page"]',
+            // Add more specific login failure selectors
+          ];
+
+          // Function to check login status
+          const checkLoginStatus = () => {
+            const isLoggedIn = loginSelectors.some(selector => document.querySelector(selector));
+            const isLoginPage = loginFailSelectors.some(selector => document.querySelector(selector));
+            
+            if (isLoggedIn) resolve(true);
+            if (isLoginPage) resolve(false);
+          };
+
+          // Check immediately and then set up a mutation observer
+          checkLoginStatus();
+
+          const observer = new MutationObserver(checkLoginStatus);
+          observer.observe(document.body, { 
+            childList: true, 
+            subtree: true 
+          });
+
+          // Timeout to prevent hanging
+          setTimeout(() => {
+            observer.disconnect();
+            resolve(null);
+          }, 10000);
+        });
+      });
+
+      // Navigate with domcontentloaded and shorter timeout
       await page.goto(env.CURSOR_USAGE_URL, { 
-        waitUntil: 'networkidle',
-        timeout: 30000 
+        waitUntil: 'domcontentloaded',
+        timeout: 15000 
       });
 
-      // Check for authentication indicators
-      const isLoggedIn = await page.evaluate(() => {
-        // Add specific checks for being logged in
-        const loginIndicators = [
-          document.querySelector('.user-profile'),
-          document.querySelector('#dashboard-content'),
-          // Add more specific selectors that indicate being logged in
-        ];
-        return loginIndicators.some(indicator => indicator !== null);
-      });
+      // Wait for login check to resolve
+      const isLoggedIn = await loginCheckPromise;
+      console.log('Login Check Result:', isLoggedIn);
 
-      console.log('Live Check - Is Logged In:', isLoggedIn);
+      // Ensure isLoggedIn is a boolean
+      const loginStatus = isLoggedIn ?? false;
 
       // Close the context to free up resources
       await context.close();
 
       // Save the authentication state
       await authManager.saveState({
-        isAuthenticated: isLoggedIn,
+        isAuthenticated: loginStatus,
         lastChecked: new Date().toISOString(),
         source: 'live_check',
-        ...(isLoggedIn ? {} : { error: 'Cannot access usage data - not authenticated' })
+        ...(loginStatus ? {} : { error: 'Cannot access usage data - not authenticated' })
       });
 
       return NextResponse.json({
-        isAuthenticated: isLoggedIn,
+        isAuthenticated: loginStatus,
         lastChecked: new Date().toISOString(),
         source: 'live_check',
-        ...(isLoggedIn ? {} : { error: 'Cannot access usage data - not authenticated' })
+        ...(loginStatus ? {} : { error: 'Cannot access usage data - not authenticated' })
       });
 
     } catch (liveCheckError) {
