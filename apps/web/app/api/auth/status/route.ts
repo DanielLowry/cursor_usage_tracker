@@ -35,9 +35,13 @@ export async function GET() {
     // First, check the session file
     const mostRecentSession = sessionStore.readSessionFile();
     if (mostRecentSession) {
-      console.log('Found session file:', JSON.stringify({
+      console.log('Raw Session File Contents (Redacted):', JSON.stringify({
         filename: mostRecentSession.filename,
-        createdAt: mostRecentSession.data.createdAt
+        createdAt: mostRecentSession.data.createdAt,
+        // Redact sensitive fields, show only structure
+        keys: Object.keys(mostRecentSession.data),
+        hasAuthData: !!mostRecentSession.data.auth,
+        hasTokens: !!(mostRecentSession.data.tokens || mostRecentSession.data.token)
       }, null, 2));
     } else {
       console.log('No session file found');
@@ -98,6 +102,17 @@ export async function GET() {
     const context = await chromium.launchPersistentContext('./data/temp-profile', {
       headless: true,
     });
+
+    // Log context creation details
+    if (mostRecentSession?.data) {
+      console.log('Session Data to be Applied (Redacted):', JSON.stringify({
+        keys: Object.keys(mostRecentSession.data),
+        hasAuthData: !!mostRecentSession.data.auth,
+        hasTokens: !!(mostRecentSession.data.tokens || mostRecentSession.data.token),
+        // Optionally, log any non-sensitive metadata about the session
+        createdAt: mostRecentSession.data.createdAt
+      }, null, 2));
+    }
 
     // Replace lines 102-197 with improved Playwright-based authentication check
     try {
