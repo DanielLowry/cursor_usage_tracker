@@ -11,7 +11,11 @@
   ],
   "host_permissions": [
   "https://cursor.com/*",
-  "https://*.cursor.com/*"
+  "https://*.cursor.com/*",
+     "https://cursor.sh/*",
+   "https://*.cursor.sh/*",
+   "https://app.cursor.sh/*",
+   "https://id.cursor.sh/*"
   ],
   "action": {
     "default_popup": "src/popup.html",

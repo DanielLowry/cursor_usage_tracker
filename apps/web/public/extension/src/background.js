@@ -16,10 +16,15 @@ async function captureCursorSession() {
     console.log('Starting session capture...');
     
     // Detailed cookie logging
-    const cookies = [
-      ...(await chrome.cookies.getAll({ domain: 'cursor.com' })),
-      ...(await chrome.cookies.getAll({ domain: '.cursor.com' }))
-    ];
+    const domains = [
+          'cursor.com', '.cursor.com',
+          'cursor.sh',  '.cursor.sh',
+          'app.cursor.sh', 'id.cursor.sh'
+        ];
+    const cookies = (await Promise.all(
+      domains.map(d => chrome.cookies.getAll({ domain: d }))
+    )).flat();
+
     console.log('Cookies found:', cookies.length);
     console.log('Cookie details:', cookies.map(cookie => ({
       name: cookie.name,
@@ -28,7 +33,13 @@ async function captureCursorSession() {
     })));
 
     // Detailed tabs logging
-    const tabs = await chrome.tabs.query({ url: ['https://cursor.com/*','https://*.cursor.com/*'] });
+    const tabs = await chrome.tabs.query({
+          url: [
+            'https://cursor.com/*','https://*.cursor.com/*',
+            'https://cursor.sh/*', 'https://*.cursor.sh/*'
+          ]
+        });
+
     console.log('Cursor.sh tabs found:', tabs.length);
     console.log('Tab URLs:', tabs.map(tab => tab.url));
 
