@@ -71,7 +71,10 @@
     <div id="status" class="status info">
       Ready to capture session data
     </div>
-    <button id="captureBtn">Capture Session Data</button>
+    <div style="display:flex; gap:8px;">
+      <button id="checkAuthBtn">Check Cursor Auth</button>
+      <button id="captureBtn">Capture Session Data</button>
+    </div>
     
     <div class="config-section">
       <h3>Configuration</h3>
@@ -81,6 +84,7 @@
       <div id="configStatus" class="status"></div>
     </div>
   </div>
+  <!-- Popup script requests background to verify Cursor auth before upload -->
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,7 +1,11 @@
-// Popup script that handles the UI and communicates with the background service worker
+// Popup script: handles UI interactions for the extension popup. It requests the
+// background service worker to capture cookies/storage and to probe Cursor's
+// authentication endpoint before attempting to upload. This prevents saving
+// expired/invalid sessions.
 document.addEventListener('DOMContentLoaded', () => {
   const statusDiv = document.getElementById('status');
   const captureBtn = document.getElementById('captureBtn');
+  const checkAuthBtn = document.getElementById('checkAuthBtn');
   const uploadUrlInput = document.getElementById('uploadUrl');
   const saveUrlBtn = document.getElementById('saveUrlBtn');
   const configStatusDiv = document.getElementById('configStatus');
@@ -50,17 +54,53 @@ document.addEventListener('DOMContentLoaded', () => {
       captureBtn.disabled = true;
       showInfo('Capturing session data...');
 
-      // Request the background script to capture cookies
+      // Before capturing, ensure auth has been checked and is valid
+      const verifyResponse = await chrome.runtime.sendMessage({ action: 'CAPTURE_AND_VERIFY_CURSOR' });
+      if (verifyResponse.error) throw new Error(verifyResponse.error);
+
+      // If not authenticated, prompt user to login and abort
+      if (!verifyResponse.authProbe || !verifyResponse.authProbe.authenticated) {
+        const reason = verifyResponse.authProbe ? verifyResponse.authProbe.reason : 'unknown';
+        showError('Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
+        captureBtn.disabled = false;
+        return;
+      }
+
+      // Authenticated — proceed to upload via existing capture flow
       const response = await chrome.runtime.sendMessage({ action: 'captureCursorSession' });
-      
       if (response.error) {
         throw new Error(response.error);
       }
 
-      showSuccess('Session data captured and uploaded successfully!');
+      const user = verifyResponse.authProbe.user;
+      const display = user?.email || user?.name || 'unknown user';
+      showSuccess('Authenticated as ' + display + '. Session captured and uploaded successfully!');
     } catch (error) {
       showError(`Failed to capture session: ${error.message}`);
       captureBtn.disabled = false;
+    }
+  });
+
+  // Check auth button logic — show the auth probe result to the user
+  checkAuthBtn.addEventListener('click', async () => {
+    try {
+      checkAuthBtn.disabled = true;
+      showInfo('Checking Cursor authentication...');
+      const verifyResponse = await chrome.runtime.sendMessage({ action: 'CAPTURE_AND_VERIFY_CURSOR' });
+      if (verifyResponse.error) throw new Error(verifyResponse.error);
+
+      if (verifyResponse.authProbe && verifyResponse.authProbe.authenticated) {
+        const user = verifyResponse.authProbe.user;
+        const display = user?.email || user?.name || 'unknown user';
+        showSuccess('✅ Authenticated as ' + display);
+      } else {
+        const reason = verifyResponse.authProbe ? verifyResponse.authProbe.reason : 'unknown';
+        showError('❌ Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
+      }
+    } catch (err) {
+      showError('Auth probe failed: ' + (err.message || String(err)));
+    } finally {
+      checkAuthBtn.disabled = false;
     }
   });
 

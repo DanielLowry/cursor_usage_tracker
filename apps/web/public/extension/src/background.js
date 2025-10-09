@@ -1,10 +1,29 @@
-// Background service worker that handles cookie capture and upload
+// Background service worker that handles cookie capture, verifies auth against
+// Cursor's /api/auth/me endpoint, and uploads captured session data when valid.
+//
+// Provides two message actions:
+// - "captureCursorSession": existing capture-and-upload flow (unchanged behavior)
+// - "CAPTURE_AND_VERIFY_CURSOR": captures cookies/storage and returns auth probe
+//    result along with captured data so the popup can decide whether to upload.
+//
+// NOTE: We intentionally probe `https://cursor.com/api/auth/me` from the
+// background service worker using `fetch` with `credentials: 'include'` so the
+// probe uses captured cookies in the browser context.
+//
+// Keep file header documentation short and focused to help future maintainers.
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'captureCursorSession') {
     captureCursorSession()
       .then(sendResponse)
       .catch(error => sendResponse({ error: error.message }));
     return true; // Keep the message channel open for async response
+  }
+
+  if (request.action === 'CAPTURE_AND_VERIFY_CURSOR') {
+    captureAndVerifyCursor()
+      .then(sendResponse)
+      .catch(error => sendResponse({ error: error.message }));
+    return true;
   }
 });
 
@@ -139,6 +158,82 @@ async function captureCursorSession() {
     });
     throw error;
   }
+}
+
+// Probe Cursor auth by requesting /api/auth/me using credentials included.
+// Returns: { authenticated: boolean, reason?: string, user?: object }
+async function probeCursorAuth() {
+  try {
+    const probeUrl = 'https://cursor.com/api/auth/me';
+    const response = await fetch(probeUrl, { credentials: 'include' });
+
+    if (response.status !== 200) {
+      return { authenticated: false, reason: `status:${response.status}` };
+    }
+
+    const body = await response.json().catch(() => null);
+    if (!body || !body.user) {
+      return { authenticated: false, reason: 'user:null_or_invalid_body', body };
+    }
+
+    return { authenticated: true, user: body.user };
+  } catch (err) {
+    return { authenticated: false, reason: `network:${err.message}` };
+  }
+}
+
+// Capture cookies and storage and return them together with an auth probe.
+async function captureAndVerifyCursor() {
+  // Reuse capture logic but do not upload here — just return results
+  console.log('Starting captureAndVerifyCursor...');
+
+  const domains = [
+    'cursor.com', '.cursor.com'
+  ];
+
+  const cookies = (await Promise.all(
+    domains.map(d => chrome.cookies.getAll({ domain: d }))
+  )).flat();
+
+  console.log('Captured cookies (summary):', cookies.map(c => ({ name: c.name, domain: c.domain, httpOnly: c.httpOnly, secure: c.secure })));
+
+  // Attempt to get a cursor.com tab to extract localStorage/sessionStorage
+  const tabs = await chrome.tabs.query({ url: ['https://cursor.com/*', 'https://*.cursor.com/*'] });
+  let storage = { localStorage: {}, sessionStorage: {} };
+
+  if (tabs.length > 0) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: () => {
+          const data = { localStorage: {}, sessionStorage: {} };
+          for (let i = 0; i < window.localStorage.length; i++) {
+            const key = window.localStorage.key(i);
+            data.localStorage[key] = window.localStorage.getItem(key);
+          }
+          for (let i = 0; i < window.sessionStorage.length; i++) {
+            const key = window.sessionStorage.key(i);
+            data.sessionStorage[key] = window.sessionStorage.getItem(key);
+          }
+          return data;
+        }
+      });
+
+      if (results && results[0]) storage = results[0].result;
+    } catch (err) {
+      console.warn('Failed to extract storage via scripting.executeScript:', err.message);
+    }
+  }
+
+  const probe = await probeCursorAuth();
+
+  return {
+    cookies,
+    localStorage: storage.localStorage,
+    sessionStorage: storage.sessionStorage,
+    authProbe: probe,
+    timestamp: new Date().toISOString()
+  };
 }
 
 // On first install, set a default upload URL
