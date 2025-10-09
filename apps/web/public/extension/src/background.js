@@ -33,16 +33,18 @@ const DEFAULT_UPLOAD_URL = 'http://192.168.0.1:3000/api/auth/upload-session';
 async function captureCursorSession() {
   try {
     console.log('Starting session capture...');
+    // Gate: ensure the session in the browser is actually authenticated by
+    // probing /api/auth/me inside a cursor.com page (so first-party cookies are used).
+    const preProbe = await probeCursorAuthInTab();
+    if (!preProbe || !preProbe.authenticated) {
+      const reason = preProbe ? preProbe.reason : 'unknown';
+      throw new Error('Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
+    }
     
     // Detailed cookie logging
-    const domains = [
-          'cursor.com', '.cursor.com',
-          'cursor.sh',  '.cursor.sh',
-          'app.cursor.sh', 'id.cursor.sh'
-        ];
-    const cookies = (await Promise.all(
-      domains.map(d => chrome.cookies.getAll({ domain: d }))
-    )).flat();
+    // Only capture cursor.com cookies — ignore cursor.sh to reduce noise.
+    const domains = ['cursor.com', '.cursor.com'];
+    const cookies = (await Promise.all(domains.map(d => chrome.cookies.getAll({ domain: d })))).flat();
 
     console.log('Cookies found:', cookies.length);
     console.log('Cookie details:', cookies.map(cookie => ({
@@ -52,12 +54,7 @@ async function captureCursorSession() {
     })));
 
     // Detailed tabs logging
-    const tabs = await chrome.tabs.query({
-          url: [
-            'https://cursor.com/*','https://*.cursor.com/*',
-            'https://cursor.sh/*', 'https://*.cursor.sh/*'
-          ]
-        });
+    const tabs = await chrome.tabs.query({ url: ['https://cursor.com/*', 'https://*.cursor.com/*'] });
 
     console.log('Cursor.sh tabs found:', tabs.length);
     console.log('Tab URLs:', tabs.map(tab => tab.url));
