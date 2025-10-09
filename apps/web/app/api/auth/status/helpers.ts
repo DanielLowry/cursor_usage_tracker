@@ -1,4 +1,6 @@
 import fs from 'fs';
+import path from 'path';
+import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 
 // Heuristic helper to detect whether a session file likely contains auth info
 export function detectAuthFromSession(sessionData: any) {
@@ -280,6 +282,68 @@ export function isStoredStateValid(storedState: any) {
   };
   const valid = details.isRecent && storedState.source === 'live_check' && !details.hasError;
   return { valid, details };
+}
+
+// Shared Playwright-based live check used by status route and upload flow.
+// Returns a compact result: { isAuthenticated, hasUser, status?, reason?, sessionDetection?, error? }
+export async function runPlaywrightLiveCheck(sessionData: any) {
+  try {
+    const env = {
+      CURSOR_AUTH_STATE_DIR: process.env.CURSOR_AUTH_STATE_DIR || './data',
+      CURSOR_USAGE_URL: process.env.CURSOR_USAGE_URL || 'https://cursor.com/dashboard?tab=usage'
+    };
+
+    const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
+    const sessionDetection = detectAuthFromSession(sessionData);
+
+    // Dynamic import Playwright to avoid bundling in serverless builds
+    const { chromium } = await import('playwright');
+    const context = await chromium.launchPersistentContext('./data/temp-profile', { headless: true });
+
+    try {
+      if (sessionData) {
+        console.log('runPlaywrightLiveCheck: applying uploaded session (redacted):', JSON.stringify({ keys: Object.keys(sessionData || {}), hasAuthData: sessionDetection.hasAuthData }, null, 2));
+      }
+
+      await hydrateContextWithSessionData(context, authManager, sessionData);
+
+      const page = await context.newPage();
+      setupPageDebugHooks(page);
+
+      const { loginSelectors, loginFailSelectors } = getLoginSelectors();
+      await navigateToUsage(page, env.CURSOR_USAGE_URL);
+
+      await saveDebugArtifacts(page);
+      await dumpContextCookies(context);
+      await readAndLogPageStorage(page);
+      await logSelectorPresence(page, loginSelectors, loginFailSelectors);
+
+      const loginStatus = await evaluateLoginStatus(page, loginSelectors, loginFailSelectors);
+
+      if (loginStatus) {
+        try {
+          await authManager.saveSessionCookies(context);
+        } catch (e) {
+          console.warn('runPlaywrightLiveCheck: saving session cookies failed:', e);
+        }
+        await authManager.updateAuthStatus(true);
+      } else {
+        await authManager.updateAuthStatus(false, 'Cannot access usage data - not authenticated');
+      }
+
+      try { await context.close(); } catch (_) {}
+
+      return { isAuthenticated: loginStatus, hasUser: loginStatus, status: null, reason: loginStatus ? 'ok' : 'user:null', sessionDetection };
+    } catch (liveErr) {
+      console.error('runPlaywrightLiveCheck: live check failed:', liveErr);
+      try { await context.close(); } catch (_) {}
+      await authManager.updateAuthStatus(false, `Live check failed: ${liveErr instanceof Error ? liveErr.message : String(liveErr)}`);
+      return { isAuthenticated: false, hasUser: false, status: null, reason: liveErr instanceof Error ? liveErr.message : String(liveErr), sessionDetection };
+    }
+  } catch (err) {
+    console.error('runPlaywrightLiveCheck: setup failed:', err);
+    return { isAuthenticated: false, hasUser: false, status: null, reason: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 

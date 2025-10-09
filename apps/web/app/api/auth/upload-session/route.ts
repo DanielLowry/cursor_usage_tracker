@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
+import { applyUploadedSessionCookies, runPlaywrightLiveCheck } from '../status/helpers';
+import fs from 'fs';
+import path from 'path';
 
 export async function POST(request: Request) {
   try {
@@ -38,12 +41,32 @@ export async function POST(request: Request) {
     // Save the session to filesystem with encryption
     const sessionFilename = sessionStore.save(sessionData);
 
-    return NextResponse.json({ 
-      success: true, 
-      sessionFilename 
-    }, { 
-      headers: responseHeaders 
-    });
+    // Server-side replay verification: delegate to shared runPlaywrightLiveCheck
+    // helper so verification logic is centralized in `status/helpers.ts`.
+    let verification: any = { ok: false, status: null, hasUser: false, reason: 'not_run' };
+    try {
+      const liveResult = await runPlaywrightLiveCheck(sessionData as any);
+      const reason = liveResult.reason ?? (("error" in liveResult && (liveResult as any).error) ? `error:${(liveResult as any).error}` : (liveResult.isAuthenticated ? 'ok' : 'user:null'));
+      verification = {
+        ok: !!liveResult.isAuthenticated,
+        status: liveResult.status ?? null,
+        hasUser: !!liveResult.hasUser,
+        reason
+      };
+      // Persist a compact verification file next to the session file for auditing
+      try {
+        const sessionsDir = path.join(process.cwd(), 'sessions');
+        const verificationFilename = sessionFilename + '.verification.json';
+        fs.writeFileSync(path.join(sessionsDir, verificationFilename), JSON.stringify({ verification, checkedAt: new Date().toISOString() }), { encoding: 'utf8', mode: 0o600 });
+      } catch (e) {
+        console.warn('Failed to write verification file:', e);
+      }
+    } catch (e) {
+      console.error('Verification delegation failed:', e);
+      verification = { ok: false, status: null, hasUser: false, reason: `delegation:${e instanceof Error ? e.message : String(e)}` };
+    }
+
+    return NextResponse.json({ success: true, sessionFilename, verification }, { headers: responseHeaders });
   } catch (error) {
     console.error('Session upload failed:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
