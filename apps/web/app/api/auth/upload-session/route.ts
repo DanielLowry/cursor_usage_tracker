@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
-import crypto from 'crypto';
 
 export async function POST(request: Request) {
   try {
@@ -36,40 +35,8 @@ export async function POST(request: Request) {
       });
     }
 
-    // Encrypt the session data using AES-256-GCM (Node built-in crypto)
-    const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
-    if (!ENCRYPTION_KEY) {
-      console.error('SESSION_ENCRYPTION_KEY not set');
-      return NextResponse.json({ error: 'Server not configured - no encryption key provided' }, { 
-        status: 500,
-        headers: responseHeaders 
-      });
-    }
-
-    const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
-    if (keyBuffer.length !== 32) {
-      console.error('SESSION_ENCRYPTION_KEY must be 32 bytes (hex-encoded)');
-      return NextResponse.json({ error: 'Server misconfigured' }, { 
-        status: 500,
-        headers: responseHeaders 
-      });
-    }
-
-    const dataToEncrypt = JSON.stringify(sessionData);
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', keyBuffer, iv);
-    const encrypted = Buffer.concat([cipher.update(dataToEncrypt, 'utf8'), cipher.final()]);
-    const authTag = cipher.getAuthTag();
-
-    const payload = {
-      ciphertext: encrypted.toString('base64'),
-      iv: iv.toString('base64'),
-      tag: authTag.toString('base64'),
-      createdAt: new Date().toISOString()
-    };
-
-    // Save the encrypted session to filesystem
-    const sessionFilename = sessionStore.save(payload);
+    // Save the session to filesystem with encryption
+    const sessionFilename = sessionStore.save(sessionData);
 
     return NextResponse.json({ 
       success: true, 

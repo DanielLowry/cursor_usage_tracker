@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 // Ensure this route runs in the Node runtime and import Playwright dynamically
-export const runtime = 'node';
+export const runtime = 'nodejs';
 
 // Playwright is a heavy native dependency that should not be bundled for the Edge/worker runtime.
 // Import it dynamically inside the handler so the Next build step doesn't try to bundle it.
@@ -34,6 +34,7 @@ export async function GET() {
 
     // First, check the session file
     const mostRecentSession = sessionStore.readSessionFile();
+    console.log('Most Recent Session:', mostRecentSession);
     if (mostRecentSession) {
       console.log('Raw Session File Contents (Redacted):', JSON.stringify({
         filename: mostRecentSession.filename,
@@ -130,7 +131,7 @@ export async function GET() {
         '.login-form',
         '[data-testid="login-page"]',
       ];
-
+      
       // Navigate with extended timeout and wait for navigation
       const navigationStartTime = Date.now();
       await page.goto(env.CURSOR_USAGE_URL, { 

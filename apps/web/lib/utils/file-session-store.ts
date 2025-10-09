@@ -1,6 +1,16 @@
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
+import crypto, { 
+  CipherGCMTypes, 
+  CipherKey, 
+  BinaryLike, 
+  KeyObject 
+} from 'crypto';
+
+// Helper function to convert Buffer to Uint8Array
+function bufferToUint8Array(buffer: Buffer): Uint8Array {
+  return new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+}
 
 export class FileSessionStore {
   private sessionsDir: string;
@@ -17,8 +27,73 @@ export class FileSessionStore {
     }
   }
 
-  // Save encrypted session
-  save(encryptedPayload: any) {
+  // Encrypt data using AES-256-GCM
+  private encrypt(data: any): { payload: any, isEncrypted: true } {
+    const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
+    if (!ENCRYPTION_KEY) {
+      throw new Error('SESSION_ENCRYPTION_KEY not set');
+    }
+
+    const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
+    if (keyBuffer.length !== 32) {
+      throw new Error('SESSION_ENCRYPTION_KEY must be 32 bytes (hex-encoded)');
+    }
+
+    const dataToEncrypt = JSON.stringify(data);
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv(
+      'aes-256-gcm' as CipherGCMTypes, 
+      bufferToUint8Array(keyBuffer), 
+      bufferToUint8Array(iv)
+    );
+    const encrypted = Buffer.concat([cipher.update(dataToEncrypt, 'utf8'), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+
+    return {
+      payload: {
+        ciphertext: encrypted.toString('base64'),
+        iv: iv.toString('base64'),
+        tag: authTag.toString('base64'),
+        createdAt: new Date().toISOString(),
+        isEncrypted: true
+      },
+      isEncrypted: true
+    };
+  }
+
+  // Decrypt data using AES-256-GCM
+  private decrypt(encryptedData: any): any {
+    const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
+    if (!ENCRYPTION_KEY) {
+      throw new Error('SESSION_ENCRYPTION_KEY not set');
+    }
+
+    const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
+    if (keyBuffer.length !== 32) {
+      throw new Error('SESSION_ENCRYPTION_KEY must be 32 bytes (hex-encoded)');
+    }
+
+    const iv = Buffer.from(encryptedData.iv, 'base64');
+    const encrypted = Buffer.from(encryptedData.ciphertext, 'base64');
+    const authTag = Buffer.from(encryptedData.tag, 'base64');
+
+    const decipher = crypto.createDecipheriv(
+      'aes-256-gcm' as CipherGCMTypes, 
+      bufferToUint8Array(keyBuffer), 
+      bufferToUint8Array(iv)
+    );
+    decipher.setAuthTag(authTag);
+
+    const decrypted = Buffer.concat([
+      decipher.update(encrypted),
+      decipher.final()
+    ]);
+
+    return JSON.parse(decrypted.toString('utf8'));
+  }
+
+  // Save session with optional encryption
+  save(payload: any, encrypt: boolean = true) {
     try {
       // Remove all existing session files before saving new one
       this.removeAllSessions();
@@ -27,16 +102,24 @@ export class FileSessionStore {
       const filename = `session_${crypto.randomBytes(16).toString('hex')}.json`;
       const filePath = path.join(this.sessionsDir, filename);
 
+      // Encrypt if requested
+      const finalPayload = encrypt ? this.encrypt(payload).payload : {
+        ...payload,
+        isEncrypted: false,
+        createdAt: new Date().toISOString()
+      };
+
       // Prepare logging details
-      const fileSize = Buffer.byteLength(JSON.stringify(encryptedPayload), 'utf8');
+      const fileSize = Buffer.byteLength(JSON.stringify(finalPayload), 'utf8');
       const logDetails = {
         filename,
         timestamp: new Date().toISOString(),
-        payloadSize: fileSize
+        payloadSize: fileSize,
+        encrypted: !!encrypt
       };
 
       // Write with secure permissions
-      fs.writeFileSync(filePath, JSON.stringify(encryptedPayload), {
+      fs.writeFileSync(filePath, JSON.stringify(finalPayload), {
         encoding: 'utf8',
         mode: 0o600 // Read/write only for owner
       });
@@ -50,6 +133,40 @@ export class FileSessionStore {
         error: error instanceof Error ? error.message : String(error)
       });
       throw error;
+    }
+  }
+
+  // Read the single session file if it exists
+  readSessionFile() {
+    try {
+      const files = fs.readdirSync(this.sessionsDir)
+        .filter(file => file.startsWith('session_') && file.endsWith('.json'));
+
+      // If no session files, return null
+      if (files.length === 0) {
+        return null;
+      }
+
+      // There should only be one file
+      const filename = files[0];
+      const filePath = path.join(this.sessionsDir, filename);
+
+      // Read and parse the file
+      const rawData = fs.readFileSync(filePath, 'utf8');
+      const sessionData = JSON.parse(rawData);
+
+      // Decrypt if encrypted
+      const finalData = sessionData.isEncrypted 
+        ? this.decrypt(sessionData) 
+        : sessionData;
+
+      return {
+        filename,
+        data: finalData
+      };
+    } catch (error) {
+      console.error('Failed to read session file:', error);
+      return null;
     }
   }
 
@@ -74,35 +191,6 @@ export class FileSessionStore {
       }
     } catch (error) {
       console.error('Failed to remove previous session files:', error);
-    }
-  }
-
-  // Read the single session file if it exists
-  readSessionFile() {
-    try {
-      const files = fs.readdirSync(this.sessionsDir)
-        .filter(file => file.startsWith('session_') && file.endsWith('.json'));
-
-      // If no session files, return null
-      if (files.length === 0) {
-        return null;
-      }
-
-      // There should only be one file
-      const filename = files[0];
-      const filePath = path.join(this.sessionsDir, filename);
-
-      // Read and parse the file
-      const rawData = fs.readFileSync(filePath, 'utf8');
-      const sessionData = JSON.parse(rawData);
-
-      return {
-        filename,
-        data: sessionData
-      };
-    } catch (error) {
-      console.error('Failed to read session file:', error);
-      return null;
     }
   }
 }

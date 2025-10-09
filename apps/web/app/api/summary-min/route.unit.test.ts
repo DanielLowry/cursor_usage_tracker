@@ -16,8 +16,7 @@
  * - If any Prisma call rejects, the handler must catch the error and return a 500 status with an error payload
  *   so clients can surface the failure without leaking stack traces.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { GET } from './route';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { prisma } from '@cursor-usage/db';
 
 // Mock the prisma client
@@ -36,6 +35,12 @@ vi.mock('@cursor-usage/db', () => ({
 describe('/api/summary-min (unit tests)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Ensure the route will attempt to import Prisma during tests
+    process.env.DATABASE_URL = 'file:memory:test.db';
+  });
+
+  afterEach(() => {
+    delete process.env.DATABASE_URL;
   });
 
   it('returns correct shape and values with data', async () => {
@@ -45,6 +50,8 @@ describe('/api/summary-min (unit tests)', () => {
       captured_at: new Date('2025-02-15T10:00:00Z'),
     } as any);
     vi.mocked(prisma.usageEvent.count).mockResolvedValue(5);
+
+    const { GET } = await import('./route');
 
     const response = await GET();
     const data = await response.json();
@@ -63,6 +70,8 @@ describe('/api/summary-min (unit tests)', () => {
     vi.mocked(prisma.snapshot.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.usageEvent.count).mockResolvedValue(0);
 
+    const { GET } = await import('./route');
+
     const response = await GET();
     const data = await response.json();
 
@@ -77,6 +86,8 @@ describe('/api/summary-min (unit tests)', () => {
   it('handles database errors gracefully by returning safe defaults', async () => {
     // Mock database error
     vi.mocked(prisma.snapshot.count).mockRejectedValue(new Error('Database error'));
+
+    const { GET } = await import('./route');
 
     const response = await GET();
     const data = await response.json();
