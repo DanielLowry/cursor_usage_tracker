@@ -140,39 +140,56 @@ async function captureSessionData() {
   return { cookies, tabs, storage };
 }
 
+async function getOrOpenCursorTab() {
+  let [tab] = await chrome.tabs.query({ url: ['https://cursor.com/*'] });
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: 'https://cursor.com/dashboard' });
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  return tab;
+}
+
 // Probe Cursor auth by requesting /api/auth/me using credentials included.
 // Returns: { authenticated: boolean, reason?: string, user?: object }
 async function probeCursorAuthInTab() {
-  // Find or open a cursor.com tab
-  let [tab] = await chrome.tabs.query({ url: ['https://cursor.com/*', 'https://*.cursor.com/*'] });
-  if (!tab) {
-    tab = await chrome.tabs.create({ url: 'https://cursor.com/dashboard' });
-    // Wait a moment for the page to become ready enough to run a script
-    await new Promise(r => setTimeout(r, 1200));
-  }
-
-  try {
-    const [res] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      // Runs in PAGE context, so fetch is same-origin and includes first-party cookies
-      func: async () => {
-        try {
-          const r = await fetch('https://cursor.com/api/auth/me', { credentials: 'include' });
-          if (!r.ok) return { ok: false, status: r.status, user: null, raw: null };
-          const json = await r.json().catch(() => null);
-          return { ok: !!(json && json.user), status: r.status, user: json?.user ?? null, raw: json };
-        } catch (e) {
-          return { ok: false, status: 0, user: null, err: String(e) };
-        }
+  const tab = await getOrOpenCursorTab();
+  const [res] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: 'MAIN', // run in the page, not an isolated world
+    func: async () => {
+      // Extra diagnostics
+      const origin = location.origin;
+      const href = location.href;
+      // 1st attempt
+      let r, j;
+      try {
+        r = await fetch('/api/auth/me', { credentials: 'include' });
+        j = r.ok ? await r.json().catch(() => null) : null;
+      } catch (e) {
+        return { ok: false, reason: `fetch_error:${String(e)}`, origin, href };
       }
-    });
-    const out = res?.result || { ok: false, status: 0, user: null };
-    return out.ok
-      ? { authenticated: true, user: out.user }
-      : { authenticated: false, reason: out.err ? `tab_fetch:${out.err}` : (out.user === null ? 'user:null' : `status:${out.status}`) };
-  } catch (e) {
-    return { authenticated: false, reason: `executeScript:${e.message || e}` };
-  }
+      if (r.status === 200 && j && j.user) {
+        return { ok: true, user: j.user, origin, href, status: 200 };
+      }
+
+      // Retry once after a short delay in case client auth hydrates late
+      await new Promise(r => setTimeout(r, 800));
+      try {
+        const r2 = await fetch('/api/auth/me', { credentials: 'include' });
+        const j2 = r2.ok ? await r2.json().catch(() => null) : null;
+        return {
+          ok: !!(r2.status === 200 && j2 && j2.user),
+          status: r2.status,
+          user: j2?.user ?? null,
+          origin, href,
+          raw: j2
+        };
+      } catch (e2) {
+        return { ok: false, reason: `retry_error:${String(e2)}`, origin, href };
+      }
+    }
+  });
+  return res?.result ?? { ok: false, reason: 'no_result' };
 }
 
 
@@ -220,6 +237,12 @@ async function captureAndVerifyCursor() {
   }
 
   const probe = await probeCursorAuthInTab();
+
+  if (!probe.ok && probe.origin !== 'https://cursor.com') {
+    await chrome.tabs.update(tab.id, { url: 'https://cursor.com/dashboard' });
+    await new Promise(r => setTimeout(r, 1500));
+    probe = await probeCursorAuthInTab(); // try again
+  }
 
   return {
     cookies,
