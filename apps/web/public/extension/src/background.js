@@ -141,55 +141,75 @@ async function captureSessionData() {
 }
 
 async function getOrOpenCursorTab() {
-  let [tab] = await chrome.tabs.query({ url: ['https://cursor.com/*'] });
+  // Prefer an apex dashboard tab; then any apex page; otherwise open one
+  let [tab] = await chrome.tabs.query({ url: ['https://cursor.com/dashboard*'] });
+  if (!tab) [tab] = await chrome.tabs.query({ url: ['https://cursor.com/*'] });
   if (!tab) {
     tab = await chrome.tabs.create({ url: 'https://cursor.com/dashboard' });
-    await new Promise(r => setTimeout(r, 1200));
+    await new Promise(r => setTimeout(r, 1500));
   }
   return tab;
 }
 
-// Probe Cursor auth by requesting /api/auth/me using credentials included.
-// Returns: { authenticated: boolean, reason?: string, user?: object }
 async function probeCursorAuthInTab() {
   const tab = await getOrOpenCursorTab();
-  const [res] = await chrome.scripting.executeScript({
+
+  // Ensure we’re really on the apex origin before probing
+  if (!/^https:\/\/cursor\.com\//.test(tab.url || '')) {
+    await chrome.tabs.update(tab.id, { url: 'https://cursor.com/dashboard' });
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  const [exec] = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    world: 'MAIN', // run in the page, not an isolated world
+    world: 'MAIN', // run in page, not isolated world
     func: async () => {
-      // Extra diagnostics
-      const origin = location.origin;
-      const href = location.href;
-      // 1st attempt
-      let r, j;
-      try {
-        r = await fetch('/api/auth/me', { credentials: 'include' });
-        j = r.ok ? await r.json().catch(() => null) : null;
-      } catch (e) {
-        return { ok: false, reason: `fetch_error:${String(e)}`, origin, href };
-      }
-      if (r.status === 200 && j && j.user) {
-        return { ok: true, user: j.user, origin, href, status: 200 };
+      const origin = location.origin, href = location.href;
+
+      // Helper to make uniform results
+      const pack = (ok, extra = {}) => ({
+        ok, origin, href, ...extra
+      });
+
+      // Try twice (late hydration)
+      const attempt = async () => {
+        try {
+          const r = await fetch('/api/auth/me', { credentials: 'include' });
+          let j = null;
+          try { j = await r.json(); } catch {}
+          return { status: r.status, json: j };
+        } catch (e) {
+          return { status: 0, json: null, error: String(e) };
+        }
+      };
+
+      const a1 = await attempt();
+      if (a1.status === 200 && a1.json && a1.json.user) {
+        return pack(true, { status: 200, user: a1.json.user });
       }
 
-      // Retry once after a short delay in case client auth hydrates late
-      await new Promise(r => setTimeout(r, 800));
-      try {
-        const r2 = await fetch('/api/auth/me', { credentials: 'include' });
-        const j2 = r2.ok ? await r2.json().catch(() => null) : null;
-        return {
-          ok: !!(r2.status === 200 && j2 && j2.user),
-          status: r2.status,
-          user: j2?.user ?? null,
-          origin, href,
-          raw: j2
-        };
-      } catch (e2) {
-        return { ok: false, reason: `retry_error:${String(e2)}`, origin, href };
-      }
+      // small delay, then retry
+      await new Promise(r => setTimeout(r, 900));
+      const a2 = await attempt();
+      const userPresent = !!(a2.status === 200 && a2.json && a2.json.user);
+
+      if (userPresent) return pack(true, { status: 200, user: a2.json.user });
+
+      // Build a clear reason in ALL cases
+      let reason = 'unknown';
+      if (a2.error) reason = `fetch_error:${a2.error}`;
+      else if (a2.status !== 200) reason = `status:${a2.status}`;
+      else if (!a2.json) reason = 'invalid_json';
+      else if (!a2.json.user) reason = 'user:null';
+
+      return pack(false, { status: a2.status, reason, raw: a2.json ?? null });
     }
   });
-  return res?.result ?? { ok: false, reason: 'no_result' };
+
+  const result = exec?.result ?? { ok: false, reason: 'no_result', origin: null, href: null, status: 0 };
+  // Log loudly for debugging
+  console.log('[probeCursorAuthInTab] result:', result);
+  return result;
 }
 
 

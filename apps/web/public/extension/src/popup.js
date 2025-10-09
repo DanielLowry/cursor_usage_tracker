@@ -86,7 +86,23 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       checkAuthBtn.disabled = true;
       showInfo('Checking Cursor authentication...');
-      const verifyResponse = await chrome.runtime.sendMessage({ action: 'CAPTURE_AND_VERIFY_CURSOR' });
+      const res = await chrome.runtime.sendMessage({ type: 'CAPTURE_AND_VERIFY_CURSOR' });
+      const probe = res?.probe;
+      console.log('[popup] probe:', probe);
+
+      if (!probe?.ok) {
+        const details = [
+          probe?.reason,
+          probe?.status ? `status:${probe.status}` : null,
+          probe?.origin ? `origin:${probe.origin}` : null,
+          probe?.href ? `href:${probe.href}` : null,
+        ].filter(Boolean).join(' | ');
+        show(`Not authenticated — please open https://cursor.com/dashboard and log in. (${details || 'no_details'})`);
+      } else {
+        const who = probe.user?.email || probe.user?.name || 'user';
+        show(`✅ Authenticated as ${who}`);
+      }
+      
       if (verifyResponse.error) throw new Error(verifyResponse.error);
 
       if (verifyResponse.authProbe && verifyResponse.authProbe.authenticated) {
