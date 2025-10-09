@@ -8,6 +8,20 @@ import { z } from 'zod';
 import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
 
+/**
+ * Auth Status Route (Orchestrator)
+ *
+ * Responsibilities:
+ * - Read the latest uploaded session artifact (decrypted by FileSessionStore)
+ * - Hydrate Playwright context with previously saved cookies and any cookies present in the uploaded artifact
+ * - Perform a live check against the Cursor dashboard
+ * - On success: persist cookies and update the canonical auth state via CursorAuthManager
+ * - On failure: update auth state with error context
+ *
+ * Note: Uploaded session artifacts are considered inputs. The distilled, minimal state
+ * used by the rest of the app lives in `cursor.state.json` and is owned by CursorAuthManager.
+ */
+
 const envSchema = z.object({
   CURSOR_AUTH_STATE_DIR: z.string().min(1).default('./data'),
   CURSOR_USAGE_URL: z.string().url().default('https://cursor.com/dashboard?tab=usage'),
@@ -195,8 +209,62 @@ export async function GET() {
       }, null, 2));
     }
 
-    // Replace lines 102-197 with improved Playwright-based authentication check
+    // Before navigation: hydrate cookies from prior successful runs and uploaded session
     try {
+      // Apply cookies that were previously saved by the auth manager (minimal reusable state)
+      await authManager.applySessionCookies(context);
+
+      // If uploaded session contains cookie-like data, attempt to apply it
+      // We support a few common shapes and best-effort conversion
+      const applyUploadedSessionCookies = async (ctx: any, session: any) => {
+        if (!session) return;
+        const candidates: any[] = [];
+
+        // Common shapes: { cookies: [...] } or top-level array
+        const rawCookies = session.cookies || session.Cookies || session.cookieStore || null;
+        if (Array.isArray(rawCookies)) {
+          candidates.push(...rawCookies);
+        } else if (Array.isArray(session)) {
+          candidates.push(...session);
+        }
+
+        if (candidates.length === 0) return;
+
+        const toPlaywright = (c: any) => {
+          const name = c.name || c.key;
+          const value = c.value || c.val || c.cookie;
+          if (!name || value === undefined) return null;
+          const domain = c.domain || c.Domain;
+          const path = c.path || '/';
+          const expires = typeof c.expires === 'number' ? c.expires : undefined;
+          const secure = Boolean(c.secure);
+          const httpOnly = Boolean(c.httpOnly || c.httponly);
+          // Playwright cookie shape
+          return {
+            name: String(name),
+            value: String(value),
+            domain: domain ? String(domain) : undefined,
+            path: String(path),
+            expires,
+            secure,
+            httpOnly,
+            sameSite: c.sameSite || undefined,
+          };
+        };
+
+        const converted = candidates.map(toPlaywright).filter(Boolean);
+        if (converted.length > 0) {
+          try {
+            await ctx.addCookies(converted as any);
+          } catch (e) {
+            console.warn('Failed to apply some uploaded session cookies:', e);
+          }
+        }
+      };
+
+      await applyUploadedSessionCookies(context, mostRecentSession?.data);
+
+      // Improved Playwright-based authentication check
       const page = await context.newPage();
       
       console.log('Navigating to usage URL:', env.CURSOR_USAGE_URL);
@@ -249,15 +317,17 @@ export async function GET() {
         loginStatus = false;
       }
 
-      // Save the authentication state
-      const authStateToSave = {
-        isAuthenticated: loginStatus,
-        lastChecked: new Date().toISOString(),
-        source: 'live_check' as const,
-        sessionDetection: sessionDetection,
-        ...(loginStatus ? {} : { error: 'Cannot access usage data - not authenticated' })
-      };
-      await authManager.saveState(authStateToSave);
+      // Persist cookies and update auth state
+      if (loginStatus) {
+        try {
+          await authManager.saveSessionCookies(context);
+        } catch (e) {
+          console.warn('Saving session cookies failed:', e);
+        }
+        await authManager.updateAuthStatus(true);
+      } else {
+        await authManager.updateAuthStatus(false, 'Cannot access usage data - not authenticated');
+      }
 
       const responseBody = {
         isAuthenticated: loginStatus,
@@ -271,14 +341,11 @@ export async function GET() {
     } catch (liveCheckError) {
       console.error('Live authentication check failed:', liveCheckError);
       
-      // Save failed state
-      const failedAuthState = {
-        isAuthenticated: false,
-        lastChecked: new Date().toISOString(),
-        source: 'live_check' as const,
-        error: `Live check failed: ${liveCheckError instanceof Error ? liveCheckError.message : 'Unknown error'}`
-      };
-      await authManager.saveState(failedAuthState);
+      // Save failed state via auth manager (canonical)
+      await authManager.updateAuthStatus(
+        false,
+        `Live check failed: ${liveCheckError instanceof Error ? liveCheckError.message : 'Unknown error'}`
+      );
 
       const errorResponse = {
         isAuthenticated: false,

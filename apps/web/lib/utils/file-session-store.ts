@@ -7,10 +7,19 @@ import crypto, {
   KeyObject 
 } from 'crypto';
 
-// Helper function to convert Buffer to Uint8Array
-function bufferToUint8Array(buffer: Buffer): Uint8Array {
-  return new Uint8Array(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
-}
+/**
+ * FileSessionStore
+ *
+ * Responsibility:
+ * - Manage a single uploaded session artifact on disk (optionally encrypted)
+ * - Provide read/decrypt functionality to higher-level orchestrators
+ *
+ * Non-responsibilities:
+ * - Does not decide auth truth; does not integrate directly with Playwright
+ * - Does not own canonical minimal auth state (see CursorAuthManager)
+ */
+
+// Node's crypto accepts Buffers directly; no conversion necessary
 
 export class FileSessionStore {
   private sessionsDir: string;
@@ -40,13 +49,17 @@ export class FileSessionStore {
     }
 
     const dataToEncrypt = JSON.stringify(data);
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv(
-      'aes-256-gcm' as CipherGCMTypes, 
-      bufferToUint8Array(keyBuffer), 
-      bufferToUint8Array(iv)
+    const cryptoAny = crypto as any;
+    const iv = cryptoAny.randomBytes(12);
+    const cipher = cryptoAny.createCipheriv(
+      'aes-256-gcm', 
+      cryptoAny.createSecretKey(keyBuffer), 
+      iv
     );
-    const encrypted = Buffer.concat([cipher.update(dataToEncrypt, 'utf8'), cipher.final()]);
+    const encrypted = Buffer.concat([
+      cipher.update(dataToEncrypt, 'utf8'),
+      cipher.final()
+    ]);
     const authTag = cipher.getAuthTag();
 
     return {
@@ -73,17 +86,18 @@ export class FileSessionStore {
       throw new Error('SESSION_ENCRYPTION_KEY must be 32 bytes (hex-encoded)');
     }
 
+    const cryptoAny = crypto as any;
     const iv = Buffer.from(encryptedData.iv, 'base64');
     const encrypted = Buffer.from(encryptedData.ciphertext, 'base64');
     const authTag = Buffer.from(encryptedData.tag, 'base64');
-
-    const decipher = crypto.createDecipheriv(
-      'aes-256-gcm' as CipherGCMTypes, 
-      bufferToUint8Array(keyBuffer), 
-      bufferToUint8Array(iv)
+    
+    const decipher = cryptoAny.createDecipheriv(
+      'aes-256-gcm', 
+      cryptoAny.createSecretKey(keyBuffer), 
+      iv
     );
     decipher.setAuthTag(authTag);
-
+    
     const decrypted = Buffer.concat([
       decipher.update(encrypted),
       decipher.final()

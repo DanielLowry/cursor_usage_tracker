@@ -25,6 +25,17 @@ const CursorAuthStateSchema = z.object({
 
 export type CursorAuthState = z.infer<typeof CursorAuthStateSchema>;
 
+/**
+ * CursorAuthManager
+ *
+ * Responsibility:
+ * - Owns the canonical auth state file (`cursor.state.json`)
+ * - Persists minimal, reusable auth data (e.g. cookies, timestamps)
+ * - Bridges Playwright <-> persisted state: save/apply cookies
+ *
+ * This intentionally does not know about uploaded session artifacts. Those are
+ * higher-level inputs; the API route should distill them down into this state.
+ */
 export class CursorAuthManager {
   private statePath: string;
 
@@ -78,12 +89,17 @@ export class CursorAuthManager {
   async updateAuthStatus(isAuthenticated: boolean, error?: string): Promise<void> {
     const currentState = await this.loadState();
     const newState: CursorAuthState = {
+      ...(currentState || {}),
       isAuthenticated,
       lastChecked: new Date().toISOString(),
-      ...currentState,
-      ...(error && { error }),
+      source: 'live_check',
+      ...(error ? { error } : {}),
     };
-    
+
+    if (!error && 'error' in (newState as any)) {
+      delete (newState as any).error;
+    }
+
     await this.saveState(newState);
   }
 
@@ -96,13 +112,18 @@ export class CursorAuthManager {
       const currentState = await this.loadState();
       
       const newState: CursorAuthState = {
+        ...(currentState || {}),
         isAuthenticated: true,
         lastChecked: new Date().toISOString(),
         sessionCookies: cookies,
         lastLogin: new Date().toISOString(),
-        ...currentState,
+        source: 'live_check',
       };
-      
+
+      if ('error' in (newState as any)) {
+        delete (newState as any).error;
+      }
+
       await this.saveState(newState);
     } catch (error) {
       console.error('Failed to save session cookies:', error);
