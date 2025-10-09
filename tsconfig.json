@@ -4,6 +4,7 @@
     "target": "es2022",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
+    "noEmit": true,
     "skipLibCheck": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
