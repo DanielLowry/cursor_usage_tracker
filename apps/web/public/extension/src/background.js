@@ -162,25 +162,39 @@ async function captureCursorSession() {
 
 // Probe Cursor auth by requesting /api/auth/me using credentials included.
 // Returns: { authenticated: boolean, reason?: string, user?: object }
-async function probeCursorAuth() {
+async function probeCursorAuthInTab() {
+  // Find or open a cursor.com tab
+  let [tab] = await chrome.tabs.query({ url: ['https://cursor.com/*', 'https://*.cursor.com/*'] });
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: 'https://cursor.com/dashboard' });
+    // Wait a moment for the page to become ready enough to run a script
+    await new Promise(r => setTimeout(r, 1200));
+  }
+
   try {
-    const probeUrl = 'https://cursor.com/api/auth/me';
-    const response = await fetch(probeUrl, { credentials: 'include' });
-
-    if (response.status !== 200) {
-      return { authenticated: false, reason: `status:${response.status}` };
-    }
-
-    const body = await response.json().catch(() => null);
-    if (!body || !body.user) {
-      return { authenticated: false, reason: 'user:null_or_invalid_body', body };
-    }
-
-    return { authenticated: true, user: body.user };
-  } catch (err) {
-    return { authenticated: false, reason: `network:${err.message}` };
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      // Runs in PAGE context, so fetch is same-origin and includes first-party cookies
+      func: async () => {
+        try {
+          const r = await fetch('https://cursor.com/api/auth/me', { credentials: 'include' });
+          if (!r.ok) return { ok: false, status: r.status, user: null, raw: null };
+          const json = await r.json().catch(() => null);
+          return { ok: !!(json && json.user), status: r.status, user: json?.user ?? null, raw: json };
+        } catch (e) {
+          return { ok: false, status: 0, user: null, err: String(e) };
+        }
+      }
+    });
+    const out = res?.result || { ok: false, status: 0, user: null };
+    return out.ok
+      ? { authenticated: true, user: out.user }
+      : { authenticated: false, reason: out.err ? `tab_fetch:${out.err}` : (out.user === null ? 'user:null' : `status:${out.status}`) };
+  } catch (e) {
+    return { authenticated: false, reason: `executeScript:${e.message || e}` };
   }
 }
+
 
 // Capture cookies and storage and return them together with an auth probe.
 async function captureAndVerifyCursor() {
@@ -225,7 +239,7 @@ async function captureAndVerifyCursor() {
     }
   }
 
-  const probe = await probeCursorAuth();
+  const probe = await probeCursorAuthInTab();
 
   return {
     cookies,
