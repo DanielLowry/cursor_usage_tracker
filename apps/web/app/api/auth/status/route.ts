@@ -7,7 +7,19 @@ export const runtime = 'nodejs';
 import { z } from 'zod';
 import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
-import fs from 'fs';
+import {
+  detectAuthFromSession,
+  hydrateContextWithSessionData,
+  setupPageDebugHooks,
+  navigateToUsage,
+  saveDebugArtifacts,
+  dumpContextCookies,
+  readAndLogPageStorage,
+  logSelectorPresence,
+  evaluateLoginStatus,
+  getLoginSelectors,
+  isStoredStateValid,
+} from './helpers';
 
 /**
  * Auth Status Route (Orchestrator)
@@ -28,75 +40,7 @@ const envSchema = z.object({
   CURSOR_USAGE_URL: z.string().url().default('https://cursor.com/dashboard?tab=usage'),
 });
 
-// Heuristic helper to detect whether a session file likely contains auth info
-function detectAuthFromSession(sessionData: any) {
-  const matched: string[] = [];
-  let hasAuthData = false;
-  let hasTokens = false;
-
-  console.log('detectAuthFromSession: entry, keys:', sessionData && typeof sessionData === 'object' ? Object.keys(sessionData) : typeof sessionData);
-
-  if (!sessionData || typeof sessionData !== 'object') {
-    console.log('detectAuthFromSession: no session object present');
-    return { hasAuthData, hasTokens, matched };
-  }
-
-  // Inspect cookies (array or object)
-  const cookies = sessionData.cookies || sessionData.Cookies || [];
-  if (Array.isArray(cookies)) {
-    for (const c of cookies) {
-      if (!c) continue;
-      const name = (c.name || c.key || '').toString();
-      const value = (c.value || c.val || c.cookie || '').toString();
-      if (/(sess|session|jwt|token|access|id)/i.test(name) || /^eyJ/.test(value)) {
-        hasAuthData = true;
-        if (/token|jwt|eyJ/.test(name + ' ' + value)) hasTokens = true;
-        matched.push(`cookie:${name || '<unnamed>'}`);
-        console.log('detectAuthFromSession: cookie matched', { name, valueSnippet: value.slice(0, 40) });
-        break;
-      }
-    }
-  }
-
-  // Inspect localStorage / sessionStorage (could be object or array of pairs)
-  const storageCandidates = ['localStorage', 'sessionStorage'];
-  for (const key of storageCandidates) {
-    const storage = sessionData[key];
-    if (!storage) continue;
-
-    // Handle array of { key, value }
-    if (Array.isArray(storage)) {
-      for (const entry of storage) {
-        const k = (entry && (entry.key || entry.name || entry.k) || '').toString();
-        const v = (entry && (entry.value || entry.val || entry.v) || '').toString();
-        if (/(token|access|refresh|auth|user|cursor)/i.test(k) || /^eyJ/.test(v)) {
-          hasAuthData = true;
-          if (/token|jwt|eyJ/.test(k + ' ' + v)) hasTokens = true;
-          matched.push(`${key}:${k || '<unnamed>'}`);
-          console.log('detectAuthFromSession: storage matched', { storage: key, key: k, valueSnippet: v.slice(0, 40) });
-        }
-      }
-    } else if (typeof storage === 'object') {
-      for (const k of Object.keys(storage)) {
-        const v = String((storage as any)[k] ?? '');
-        if (/(token|access|refresh|auth|user|cursor)/i.test(k) || /^eyJ/.test(v)) {
-          hasAuthData = true;
-          if (/token|jwt|eyJ/.test(k + ' ' + v)) hasTokens = true;
-          matched.push(`${key}:${k}`);
-          console.log('detectAuthFromSession: storage object matched', { storage: key, key: k, valueSnippet: v.slice(0, 40) });
-        }
-      }
-    }
-  }
-
-  // Timestamp presence isn't auth by itself but is useful metadata
-  if (sessionData.timestamp || sessionData.createdAt) {
-    matched.push('hasTimestamp');
-  }
-
-  console.log('detectAuthFromSession: result', { hasAuthData, hasTokens, matched });
-  return { hasAuthData, hasTokens, matched };
-}
+// helpers moved to ./helpers
 
 export async function GET() {
   try {
@@ -148,28 +92,11 @@ export async function GET() {
 
     // Detailed logging for state check
     if (storedState?.isAuthenticated) {
-      const lastChecked = new Date(storedState.lastChecked);
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      
-      const stateCheckDetails = {
-        lastChecked: lastChecked.toISOString(),
-        fiveMinutesAgo: fiveMinutesAgo.toISOString(),
-        isRecent: lastChecked > fiveMinutesAgo,
-        source: storedState.source,
-        hasError: !!storedState.error
-      };
-      
-      console.log('State Check Details:', JSON.stringify(stateCheckDetails, null, 2));
+      const { valid, details } = isStoredStateValid(storedState);
+      console.log('State Check Details:', JSON.stringify(details, null, 2));
+      console.log('Is Stored State Valid:', valid);
 
-      // Detailed conditions for trusting stored state
-      const isValidStoredState = 
-        lastChecked > fiveMinutesAgo && 
-        storedState.source === 'live_check' && 
-        !storedState.error;
-
-      console.log('Is Stored State Valid:', isValidStoredState);
-
-      if (isValidStoredState) {
+      if (valid) {
         console.log('Returning authenticated state from stored state');
         return NextResponse.json({
           isAuthenticated: true,
@@ -179,7 +106,7 @@ export async function GET() {
         });
       } else {
         console.log('Stored state is not valid. Reasons:', {
-          notRecent: lastChecked <= fiveMinutesAgo,
+          notRecent: details ? !details.isRecent : true,
           wrongSource: storedState.source !== 'live_check',
           hasError: !!storedState.error
         });
@@ -212,202 +139,32 @@ export async function GET() {
 
     // Before navigation: hydrate cookies from prior successful runs and uploaded session
     try {
-      // Apply cookies that were previously saved by the auth manager (minimal reusable state)
-      await authManager.applySessionCookies(context);
-
-      // If uploaded session contains cookie-like data, attempt to apply it
-      // We support a few common shapes and best-effort conversion
-      const applyUploadedSessionCookies = async (ctx: any, session: any) => {
-        if (!session) return;
-        const candidates: any[] = [];
-
-        // Common shapes: { cookies: [...] } or top-level array
-        const rawCookies = session.cookies || session.Cookies || session.cookieStore || null;
-        if (Array.isArray(rawCookies)) {
-          candidates.push(...rawCookies);
-        } else if (Array.isArray(session)) {
-          candidates.push(...session);
-        }
-
-        if (candidates.length === 0) return;
-
-        const toPlaywright = (c: any) => {
-          const name = c.name || c.key;
-          const value = c.value || c.val || c.cookie;
-          if (!name || value === undefined) return null;
-          const domain = c.domain || c.Domain;
-          const path = c.path || '/';
-          const expires = typeof c.expires === 'number' ? c.expires : undefined;
-          const secure = Boolean(c.secure);
-          const httpOnly = Boolean(c.httpOnly || c.httponly);
-
-          const normalizeSameSite = (raw: any) => {
-            if (raw == null) return undefined;
-            const s = String(raw).trim().toLowerCase();
-            if (s === 'strict') return 'Strict';
-            if (s === 'lax') return 'Lax';
-            if (s === 'none') return 'None';
-            return undefined;
-          };
-
-          // Playwright cookie shape
-          return {
-            name: String(name),
-            value: String(value),
-            domain: domain ? String(domain) : undefined,
-            path: String(path),
-            expires,
-            secure,
-            httpOnly,
-            sameSite: normalizeSameSite(c.sameSite ?? c.same_site ?? c.sameSitePolicy),
-          };
-        };
-
-        const converted = candidates.map(toPlaywright).filter(Boolean);
-        if (converted.length > 0) {
-          try {
-            await ctx.addCookies(converted as any);
-          } catch (e) {
-            console.warn('Failed to apply some uploaded session cookies:', e);
-          }
-        }
-      };
-
-      await applyUploadedSessionCookies(context, mostRecentSession?.data);
+      await hydrateContextWithSessionData(context, authManager, mostRecentSession?.data);
 
       // Improved Playwright-based authentication check
       const page = await context.newPage();
 
       // Playwright page / network debug hooks
-      page.on('console', msg => console.log('PAGE_CONSOLE:', msg.type(), msg.text()));
-      page.on('requestfailed', req => {
-        const f = req.failure();
-        console.log('REQ_FAILED:', req.url(), f ? f.errorText : '');
-      });
-      page.on('response', res => console.log('PAGE_RESPONSE:', res.status(), res.url()));
-
-      console.log('Navigating to usage URL:', env.CURSOR_USAGE_URL);
+      setupPageDebugHooks(page);
 
       // Define login and logout selectors
-      const loginSelectors = [
-        '.user-profile',
-        '#dashboard-content',
-      ];
+      const { loginSelectors, loginFailSelectors } = getLoginSelectors();
 
-      const loginFailSelectors = [
-        '.login-form',
-        '[data-testid="login-page"]',
-      ];
-
-      // Navigate with extended timeout and wait for navigation
-      const navigationStartTime = Date.now();
-      const resp = await page.goto(env.CURSOR_USAGE_URL, {
-        waitUntil: 'domcontentloaded',
-        timeout: 15000
-      });
-      const navigationEndTime = Date.now();
-      console.log(`Page navigation completed in ${navigationEndTime - navigationStartTime}ms`);
-      console.log('Navigation response:', resp ? resp.status() : 'no response');
-      try {
-        console.log('Page URL after navigation:', page.url());
-      } catch (e) {
-        console.log('Page URL after navigation: <unavailable>', String(e));
-      }
-
-      // Give the page a moment to settle (optional)
-      try {
-        await page.waitForLoadState('networkidle', { timeout: 5000 });
-      } catch (e) {
-        // e may be unknown; safely stringify when possible
-        const errMsg = e && typeof e === 'object' && 'message' in e ? (e as any).message : String(e);
-        console.log('networkidle wait timed out or failed:', errMsg);
-      }
+      // Navigate and wait for page readiness
+      await navigateToUsage(page, env.CURSOR_USAGE_URL);
 
       // Save debug artifacts (screenshot + HTML)
-      try {
-        fs.mkdirSync('./data/debug', { recursive: true });
-        const timestamp = Date.now();
-        await page.screenshot({ path: `./data/debug/${timestamp}-page.png`, fullPage: true });
-        const html = await page.content();
-        fs.writeFileSync(`./data/debug/${timestamp}-page.html`, html);
-        console.log('Saved debug screenshot and HTML to ./data/debug');
-      } catch (e) {
-        console.warn('Failed to save debug artifacts:', e);
-      }
+      await saveDebugArtifacts(page);
 
       // Dump cookies and storage for diagnosis
-      try {
-        const allCookies = await context.cookies();
-        console.log('Context cookies:', JSON.stringify(allCookies, null, 2));
-      } catch (e) {
-        console.warn('Failed to read cookies:', e);
-      }
-
-      try {
-        const storage = await page.evaluate(() => {
-          return {
-            localStorage: Object.keys(localStorage).reduce((acc: any, k: string) => { acc[k] = localStorage.getItem(k); return acc; }, {}),
-            sessionStorage: Object.keys(sessionStorage).reduce((acc: any, k: string) => { acc[k] = sessionStorage.getItem(k); return acc; }, {})
-          };
-        });
-        console.log('page storage:', JSON.stringify(storage, null, 2));
-      } catch (e) {
-        console.warn('Failed to read page storage:', e);
-      }
+      await dumpContextCookies(context);
+      await readAndLogPageStorage(page);
 
       // Log which selectors (if any) are present on the page
-      for (const sel of loginSelectors) {
-        try {
-          const el = await page.$(sel);
-          if (el) {
-            const visible = await el.isVisible().catch(() => false);
-            console.log('Matched login success selector:', sel, 'visible:', visible);
-            break;
-          }
-        } catch (e) {
-          /* ignore selector probe errors */
-        }
-      }
-      for (const sel of loginFailSelectors) {
-        try {
-          const el = await page.$(sel);
-          if (el) {
-            const visible = await el.isVisible().catch(() => false);
-            console.log('Matched login failure selector:', sel, 'visible:', visible);
-            break;
-          }
-        } catch (e) {
-          /* ignore selector probe errors */
-        }
-      }
+      await logSelectorPresence(page, loginSelectors, loginFailSelectors);
 
       // Attempt to detect login status using Playwright's native waiters
-      let loginStatus = false;
-      try {
-        // Race between login success and login page selectors
-        const loginResult = await Promise.race([
-          // Wait for login success indicators
-          page.waitForSelector(loginSelectors.join(', '), { 
-            state: 'visible', 
-            timeout: 10000 
-          }).then(() => true).catch(() => false),
-          
-          // Wait for login page indicators
-          page.waitForSelector(loginFailSelectors.join(', '), { 
-            state: 'visible', 
-            timeout: 10000 
-          }).then(() => false).catch(() => null)
-        ]);
-
-        // Resolve login status
-        loginStatus = loginResult === true;
-        console.log('Login Status (resolved):', loginStatus, 
-          loginStatus ? '(logged in)' : '(not logged in)'
-        );
-      } catch (detectionError) {
-        console.warn('Login status detection inconclusive:', detectionError);
-        loginStatus = false;
-      }
+      const loginStatus = await evaluateLoginStatus(page, loginSelectors, loginFailSelectors);
 
       // Persist cookies and update auth state
       if (loginStatus) {
