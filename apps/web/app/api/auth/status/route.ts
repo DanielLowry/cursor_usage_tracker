@@ -239,6 +239,16 @@ export async function GET() {
           const expires = typeof c.expires === 'number' ? c.expires : undefined;
           const secure = Boolean(c.secure);
           const httpOnly = Boolean(c.httpOnly || c.httponly);
+
+          const normalizeSameSite = (raw: any) => {
+            if (raw == null) return undefined;
+            const s = String(raw).trim().toLowerCase();
+            if (s === 'strict') return 'Strict';
+            if (s === 'lax') return 'Lax';
+            if (s === 'none') return 'None';
+            return undefined;
+          };
+
           // Playwright cookie shape
           return {
             name: String(name),
@@ -248,7 +258,7 @@ export async function GET() {
             expires,
             secure,
             httpOnly,
-            sameSite: c.sameSite || undefined,
+            sameSite: normalizeSameSite(c.sameSite ?? c.same_site ?? c.sameSitePolicy),
           };
         };
 
