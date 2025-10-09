@@ -7,6 +7,7 @@ export const runtime = 'nodejs';
 import { z } from 'zod';
 import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
+import fs from 'fs';
 
 /**
  * Auth Status Route (Orchestrator)
@@ -276,28 +277,109 @@ export async function GET() {
 
       // Improved Playwright-based authentication check
       const page = await context.newPage();
-      
+
+      // Playwright page / network debug hooks
+      page.on('console', msg => console.log('PAGE_CONSOLE:', msg.type(), msg.text()));
+      page.on('requestfailed', req => {
+        const f = req.failure();
+        console.log('REQ_FAILED:', req.url(), f ? f.errorText : '');
+      });
+      page.on('response', res => console.log('PAGE_RESPONSE:', res.status(), res.url()));
+
       console.log('Navigating to usage URL:', env.CURSOR_USAGE_URL);
-      
+
       // Define login and logout selectors
       const loginSelectors = [
         '.user-profile',
         '#dashboard-content',
       ];
-      
+
       const loginFailSelectors = [
         '.login-form',
         '[data-testid="login-page"]',
       ];
-      
+
       // Navigate with extended timeout and wait for navigation
       const navigationStartTime = Date.now();
-      await page.goto(env.CURSOR_USAGE_URL, { 
+      const resp = await page.goto(env.CURSOR_USAGE_URL, {
         waitUntil: 'domcontentloaded',
-        timeout: 15000 
+        timeout: 15000
       });
       const navigationEndTime = Date.now();
       console.log(`Page navigation completed in ${navigationEndTime - navigationStartTime}ms`);
+      console.log('Navigation response:', resp ? resp.status() : 'no response');
+      try {
+        console.log('Page URL after navigation:', page.url());
+      } catch (e) {
+        console.log('Page URL after navigation: <unavailable>', String(e));
+      }
+
+      // Give the page a moment to settle (optional)
+      try {
+        await page.waitForLoadState('networkidle', { timeout: 5000 });
+      } catch (e) {
+        // e may be unknown; safely stringify when possible
+        const errMsg = e && typeof e === 'object' && 'message' in e ? (e as any).message : String(e);
+        console.log('networkidle wait timed out or failed:', errMsg);
+      }
+
+      // Save debug artifacts (screenshot + HTML)
+      try {
+        fs.mkdirSync('./data/debug', { recursive: true });
+        const timestamp = Date.now();
+        await page.screenshot({ path: `./data/debug/${timestamp}-page.png`, fullPage: true });
+        const html = await page.content();
+        fs.writeFileSync(`./data/debug/${timestamp}-page.html`, html);
+        console.log('Saved debug screenshot and HTML to ./data/debug');
+      } catch (e) {
+        console.warn('Failed to save debug artifacts:', e);
+      }
+
+      // Dump cookies and storage for diagnosis
+      try {
+        const allCookies = await context.cookies();
+        console.log('Context cookies:', JSON.stringify(allCookies, null, 2));
+      } catch (e) {
+        console.warn('Failed to read cookies:', e);
+      }
+
+      try {
+        const storage = await page.evaluate(() => {
+          return {
+            localStorage: Object.keys(localStorage).reduce((acc: any, k: string) => { acc[k] = localStorage.getItem(k); return acc; }, {}),
+            sessionStorage: Object.keys(sessionStorage).reduce((acc: any, k: string) => { acc[k] = sessionStorage.getItem(k); return acc; }, {})
+          };
+        });
+        console.log('page storage:', JSON.stringify(storage, null, 2));
+      } catch (e) {
+        console.warn('Failed to read page storage:', e);
+      }
+
+      // Log which selectors (if any) are present on the page
+      for (const sel of loginSelectors) {
+        try {
+          const el = await page.$(sel);
+          if (el) {
+            const visible = await el.isVisible().catch(() => false);
+            console.log('Matched login success selector:', sel, 'visible:', visible);
+            break;
+          }
+        } catch (e) {
+          /* ignore selector probe errors */
+        }
+      }
+      for (const sel of loginFailSelectors) {
+        try {
+          const el = await page.$(sel);
+          if (el) {
+            const visible = await el.isVisible().catch(() => false);
+            console.log('Matched login failure selector:', sel, 'visible:', visible);
+            break;
+          }
+        } catch (e) {
+          /* ignore selector probe errors */
+        }
+      }
 
       // Attempt to detect login status using Playwright's native waiters
       let loginStatus = false;
