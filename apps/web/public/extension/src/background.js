@@ -40,24 +40,11 @@ async function captureCursorSession() {
       const reason = preProbe ? preProbe.reason : 'unknown';
       throw new Error('Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
     }
-    
-    // Detailed cookie logging
-    // Only capture cursor.com cookies — ignore cursor.sh to reduce noise.
-    const domains = ['cursor.com', '.cursor.com'];
-    const cookies = (await Promise.all(domains.map(d => chrome.cookies.getAll({ domain: d })))).flat();
+    // Capture cookies, tabs and storage (shared helper)
+    const { cookies, tabs, storage } = await captureSessionData();
 
     console.log('Cookies found:', cookies.length);
-    console.log('Cookie details:', cookies.map(cookie => ({
-      name: cookie.name,
-      domain: cookie.domain,
-      path: cookie.path
-    })));
-
-    // Detailed tabs logging
-    const tabs = await chrome.tabs.query({ url: ['https://cursor.com/*', 'https://*.cursor.com/*'] });
-
-    console.log('Cursor.sh tabs found:', tabs.length);
-    console.log('Tab URLs:', tabs.map(tab => tab.url));
+    console.log('Cookie details:', cookies.map(cookie => ({ name: cookie.name, domain: cookie.domain, path: cookie.path })));
 
     // Detailed upload URL logging
     const { uploadUrl, useCustomUploadUrl } = await chrome.storage.local.get(['uploadUrl', 'useCustomUploadUrl']);
@@ -69,52 +56,13 @@ async function captureCursorSession() {
       throw new Error('Extension not configured');
     }
 
-    // Existing cookie capture logic
+    // Basic validation
     if (!cookies.length) {
       throw new Error('No Cursor session found. Please ensure you are logged in to Cursor.');
     }
 
-    // Existing storage capture logic
-    let storage = { localStorage: {}, sessionStorage: {} };
-    
-    if (tabs.length > 0) {
-      // Execute content script to get storage data
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tabs[0].id },
-        func: () => {
-          const data = {
-            localStorage: {},
-            sessionStorage: {}
-          };
-          
-          // Capture localStorage
-          for (let i = 0; i < window.localStorage.length; i++) {
-            const key = window.localStorage.key(i);
-            data.localStorage[key] = window.localStorage.getItem(key);
-          }
-          
-          // Capture sessionStorage
-          for (let i = 0; i < window.sessionStorage.length; i++) {
-            const key = window.sessionStorage.key(i);
-            data.sessionStorage[key] = window.sessionStorage.getItem(key);
-          }
-          
-          return data;
-        }
-      });
-      
-      if (results && results[0]) {
-        storage = results[0].result;
-      }
-    }
-
     // Prepare the session data
-    const sessionData = {
-      cookies,
-      localStorage: storage.localStorage,
-      sessionStorage: storage.sessionStorage,
-      timestamp: new Date().toISOString()
-    };
+    const sessionData = { cookies, localStorage: storage.localStorage, sessionStorage: storage.sessionStorage, timestamp: new Date().toISOString() };
 
     // Detailed fetch logging
     try {
@@ -155,6 +103,41 @@ async function captureCursorSession() {
     });
     throw error;
   }
+}
+
+// Helper: capture cookies, tabs and storage (local/session) for cursor.com
+async function captureSessionData() {
+  const domains = ['cursor.com', '.cursor.com'];
+  const cookies = (await Promise.all(domains.map(d => chrome.cookies.getAll({ domain: d })))).flat();
+
+  const tabs = await chrome.tabs.query({ url: ['https://cursor.com/*', 'https://*.cursor.com/*'] });
+  let storage = { localStorage: {}, sessionStorage: {} };
+
+  if (tabs.length > 0) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tabs[0].id },
+        func: () => {
+          const data = { localStorage: {}, sessionStorage: {} };
+          for (let i = 0; i < window.localStorage.length; i++) {
+            const key = window.localStorage.key(i);
+            data.localStorage[key] = window.localStorage.getItem(key);
+          }
+          for (let i = 0; i < window.sessionStorage.length; i++) {
+            const key = window.sessionStorage.key(i);
+            data.sessionStorage[key] = window.sessionStorage.getItem(key);
+          }
+          return data;
+        }
+      });
+
+      if (results && results[0]) storage = results[0].result;
+    } catch (err) {
+      console.warn('Failed to extract storage via scripting.executeScript:', err.message);
+    }
+  }
+
+  return { cookies, tabs, storage };
 }
 
 // Probe Cursor auth by requesting /api/auth/me using credentials included.
