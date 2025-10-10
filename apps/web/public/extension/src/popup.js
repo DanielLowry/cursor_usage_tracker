@@ -100,7 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
         show(`Not authenticated — please open https://cursor.com/dashboard and log in. (${details || 'no_details'})`);
       } else {
         const who = probe.user?.email || probe.user?.name || 'user';
-        show(`✅ Authenticated as ${who}`);
+        show(`Authenticated as ${who}`);
       }
       
       if (verifyResponse.error) throw new Error(verifyResponse.error);
@@ -108,10 +108,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (verifyResponse.authProbe && verifyResponse.authProbe.authenticated) {
         const user = verifyResponse.authProbe.user;
         const display = user?.email || user?.name || 'unknown user';
-        showSuccess('✅ Authenticated as ' + display);
+        showSuccess('Authenticated as ' + display);
       } else {
         const reason = verifyResponse.authProbe ? verifyResponse.authProbe.reason : 'unknown';
-        showError('❌ Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
+        showError('Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
       }
     } catch (err) {
       showError('Auth probe failed: ' + (err.message || String(err)));
