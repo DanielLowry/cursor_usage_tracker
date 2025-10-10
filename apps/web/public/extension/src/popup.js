@@ -86,32 +86,20 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       checkAuthBtn.disabled = true;
       showInfo('Checking Cursor authentication...');
-      const res = await chrome.runtime.sendMessage({ type: 'CAPTURE_AND_VERIFY_CURSOR' });
-      const probe = res?.probe;
-      console.log('[popup] probe:', probe);
+      // Request a capture-and-verify from the background worker. It returns
+      // an object shaped like: { cookies, localStorage, sessionStorage, authProbe, timestamp }
+      const res = await chrome.runtime.sendMessage({ action: 'CAPTURE_AND_VERIFY_CURSOR' });
+      if (res?.error) throw new Error(res.error);
+
+      const probe = res?.authProbe;
+      console.log('[popup] authProbe:', probe);
 
       if (!probe?.ok) {
-        const details = [
-          probe?.reason,
-          probe?.status ? `status:${probe.status}` : null,
-          probe?.origin ? `origin:${probe.origin}` : null,
-          probe?.href ? `href:${probe.href}` : null,
-        ].filter(Boolean).join(' | ');
-        show(`Not authenticated — please open https://cursor.com/dashboard and log in. (${details || 'no_details'})`);
+        const details = [probe?.reason, probe?.status ? `status:${probe.status}` : null, probe?.origin ? `origin:${probe.origin}` : null, probe?.href ? `href:${probe.href}` : null].filter(Boolean).join(' | ');
+        showError(`Not authenticated — please open https://cursor.com/dashboard and log in. (${details || 'no_details'})`);
       } else {
         const who = probe.user?.email || probe.user?.name || 'user';
-        show(`Authenticated as ${who}`);
-      }
-      
-      if (verifyResponse.error) throw new Error(verifyResponse.error);
-
-      if (verifyResponse.authProbe && verifyResponse.authProbe.authenticated) {
-        const user = verifyResponse.authProbe.user;
-        const display = user?.email || user?.name || 'unknown user';
-        showSuccess('Authenticated as ' + display);
-      } else {
-        const reason = verifyResponse.authProbe ? verifyResponse.authProbe.reason : 'unknown';
-        showError('Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
+        showSuccess(`Authenticated as ${who}`);
       }
     } catch (err) {
       showError('Auth probe failed: ' + (err.message || String(err)));
