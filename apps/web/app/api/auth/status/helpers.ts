@@ -360,7 +360,7 @@ export async function runPlaywrightLiveCheck(sessionData: any) {
 
       await hydrateContextWithSessionData(context, authManager, sessionData);
 
-      // API-first verification
+      // Single authoritative API verification to usage-summary
       const apiProof = await checkUsageSummaryWithContext(context);
       console.log('API proof: GET /api/usage-summary →', apiProof.status, '| keys:', (apiProof.keys || []).join(','), '| reason:', apiProof.reason);
 
@@ -368,34 +368,38 @@ export async function runPlaywrightLiveCheck(sessionData: any) {
         try { await authManager.saveSessionCookies(context); } catch (e) { console.warn('runPlaywrightLiveCheck: saving session cookies failed:', e); }
         await authManager.updateAuthStatus(true);
         try { await context.close(); } catch (_) {}
-        return { isAuthenticated: true, hasUser: true, status: apiProof.status, reason: apiProof.reason, sessionDetection };
+        return {
+          isAuthenticated: true,
+          hasUser: true,
+          status: apiProof.status,
+          reason: apiProof.reason,
+          keys: apiProof.keys,
+          contentType: apiProof.contentType,
+          sessionDetection
+        };
       }
 
-      // Secondary DOM proof for diagnostics
-      const page = await context.newPage();
-      setupPageDebugHooks(page);
-      const { loginSelectors, loginFailSelectors } = getLoginSelectors();
-      await navigateToUsage(page, env.CURSOR_USAGE_URL);
-      await saveDebugArtifacts(page);
-      await dumpContextCookies(context);
-      await readAndLogPageStorage(page);
-      await logSelectorPresence(page, loginSelectors, loginFailSelectors);
-      const loginStatus = await evaluateLoginStatus(page, loginSelectors, loginFailSelectors);
-
-      // Persist and update based on API result (primary). DOM is supporting only.
-      await authManager.updateAuthStatus(false, apiProof.reason || (loginStatus ? 'dom_only' : 'not_authenticated'));
-
+      // No DOM fallback: return diagnostics from API probe
+      await authManager.updateAuthStatus(false, apiProof.reason);
       try { await context.close(); } catch (_) {}
-      return { isAuthenticated: false, hasUser: loginStatus, status: apiProof.status, reason: apiProof.reason, sessionDetection };
+      return {
+        isAuthenticated: false,
+        hasUser: false,
+        status: apiProof.status,
+        reason: apiProof.reason,
+        keys: apiProof.keys,
+        contentType: apiProof.contentType,
+        sessionDetection
+      };
     } catch (liveErr) {
       console.error('runPlaywrightLiveCheck: live check failed:', liveErr);
       try { await context.close(); } catch (_) {}
       await authManager.updateAuthStatus(false, `Live check failed: ${liveErr instanceof Error ? liveErr.message : String(liveErr)}`);
-      return { isAuthenticated: false, hasUser: false, status: null, reason: liveErr instanceof Error ? liveErr.message : String(liveErr), sessionDetection };
+      return { isAuthenticated: false, hasUser: false, status: null, reason: liveErr instanceof Error ? liveErr.message : String(liveErr), keys: [], contentType: '', sessionDetection };
     }
   } catch (err) {
     console.error('runPlaywrightLiveCheck: setup failed:', err);
-    return { isAuthenticated: false, hasUser: false, status: null, reason: err instanceof Error ? err.message : String(err) };
+    return { isAuthenticated: false, hasUser: false, status: null, reason: err instanceof Error ? err.message : String(err), keys: [], contentType: '' };
   }
 }
 

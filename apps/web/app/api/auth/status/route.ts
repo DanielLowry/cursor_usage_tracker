@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 import { z } from 'zod';
 import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
-import { detectAuthFromSession, isStoredStateValid, runPlaywrightLiveCheck } from './helpers';
+import { detectAuthFromSession, runPlaywrightLiveCheck } from './helpers';
 
 /**
  * Auth Status Route (Orchestrator)
@@ -70,36 +70,7 @@ export async function GET() {
       console.log('No session file found');
     }
 
-    // Load stored authentication state
-    const storedState = await authManager.loadState();
-    console.log('Loaded Stored State:', JSON.stringify(storedState, null, 2));
-
-    // Detailed logging for state check
-    if (storedState?.isAuthenticated) {
-      const { valid, details } = isStoredStateValid(storedState);
-      console.log('State Check Details:', JSON.stringify(details, null, 2));
-      console.log('Is Stored State Valid:', valid);
-
-      if (valid) {
-        console.log('Returning authenticated state from stored state');
-        return NextResponse.json({
-          isAuthenticated: true,
-          lastChecked: storedState.lastChecked,
-          source: 'stored_state',
-          sessionFile: mostRecentSession?.filename,
-          sessionDetection
-        });
-      } else {
-        console.log('Stored state is not valid. Reasons:', {
-          notRecent: details ? !details.isRecent : true,
-          wrongSource: storedState.source !== 'live_check',
-          hasError: !!storedState.error
-        });
-      }
-    } else {
-      console.log('No valid stored authentication state found');
-    }
-
+    // Always perform live authentication check via usage-summary
     console.log('Attempting live authentication check via runPlaywrightLiveCheck');
 
     const liveResult = await runPlaywrightLiveCheck(mostRecentSession?.data);
@@ -115,19 +86,20 @@ export async function GET() {
         status: liveResult.status ?? null,
         reason: liveResult.reason ?? null,
         hasUser: liveResult.hasUser ?? false,
+        keys: (liveResult as any).keys ?? [],
+        contentType: (liveResult as any).contentType ?? null
       }
     };
 
+    const httpStatus = liveResult.isAuthenticated
+      ? 200
+      : (liveResult.status === 401 || liveResult.status === 403 ? (liveResult.status as number) : 401);
+
     const responseWithError = liveResult.isAuthenticated
       ? responseBody
-      : {
-          ...responseBody,
-          error: liveResult.reason || 'Cannot access usage data - not authenticated'
-        };
+      : { ...responseBody, error: liveResult.reason || 'Cannot access usage data - not authenticated' };
 
-    return NextResponse.json(responseWithError, {
-      status: liveResult.isAuthenticated ? 200 : 200
-    });
+    return NextResponse.json(responseWithError, { status: httpStatus });
   } catch (error) {
     console.error('Complete authentication status check failed:', error);
 
