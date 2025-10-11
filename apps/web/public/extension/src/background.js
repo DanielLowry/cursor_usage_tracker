@@ -191,8 +191,6 @@ async function probeCursorAuthInTab() {
 		func: async () => {
 			const origin = location.origin, href = location.href;
 
-			const expectedKeys = ['totals', 'byModel', 'period'];
-
 			const pack = (ok, extra = {}) => ({ ok, origin, href, ...extra });
 
 			const attempt = async () => {
@@ -222,11 +220,9 @@ async function probeCursorAuthInTab() {
 				const isObject = j && typeof j === 'object' && !Array.isArray(j);
 				if (!isObject) return { ok: false, reason: 'invalid_json' };
 				const keys = Object.keys(j || {});
-				const hitCount = expectedKeys.filter(k => k in (j || {})).length;
-				const hasUnauthorized = typeof j.error === 'string' && /unauth|forbid|denied/i.test(j.error);
-				const looksEmptyShell = keys.length <= 1 || hitCount === 0;
-				if (hasUnauthorized) return { ok: false, reason: 'api_unauthorized', keys };
-				if (looksEmptyShell) return { ok: false, reason: 'empty_shell', keys };
+				const required = ['billingCycleStart', 'billingCycleEnd', 'membershipType'];
+				const hasRequiredFields = required.every(k => k in (j || {}));
+				if (!hasRequiredFields) return { ok: false, reason: 'missing_fields', keys };
 				return { ok: true, keys };
 			};
 
