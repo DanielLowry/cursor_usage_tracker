@@ -1,3 +1,5 @@
+// Relative path: apps/worker/src/workers/scheduler.ts
+
 import { Queue } from 'bullmq';
 import { getRedis } from '@cursor-usage/redis';
 import { scraperQueue } from './scraper';

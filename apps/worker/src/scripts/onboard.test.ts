@@ -1,4 +1,6 @@
 /**
+ * Relative path: apps/worker/src/scripts/onboard.test.ts
+ *
  * Test Purpose:
  * - Provides a smoke test for the Playwright-based onboarding script by launching a persistent Chromium
  *   context headlessly and ensuring the temporary user-data directory is created.

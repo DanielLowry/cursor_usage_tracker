@@ -1,3 +1,5 @@
+// Relative path: apps/worker/src/scripts/onboard.ts
+
 import { chromium } from 'playwright';
 import { z } from 'zod';
 import * as path from 'path';

@@ -1,4 +1,6 @@
 /**
+ * Relative path: apps/worker/src/workers/scrape.test.ts
+ *
  * Test Purpose:
  * - Validates that the scrape worker stores captured network fixtures as gzipped `raw_blob` records and enforces
  *   the retention policy to keep only the newest N entries.
@@ -14,7 +16,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import prisma from '../../../../packages/db/src/client';
-import { ingestFixtures } from './scrape';
+import { ingestFixtures } from './scraper';
 
 async function reset() {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE raw_blobs RESTART IDENTITY CASCADE');

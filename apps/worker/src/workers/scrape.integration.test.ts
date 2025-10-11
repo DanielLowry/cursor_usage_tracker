@@ -1,4 +1,6 @@
 /**
+ * Relative path: apps/worker/src/workers/scrape.integration.test.ts
+ *
  * Test Purpose:
  * - Exercises the full scrape-to-ingest pipeline by saving fixture payloads as raw blobs, decompressing them,
  *   and feeding the results through snapshot creation to produce usage events.
@@ -14,7 +16,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import prisma from '../../../../packages/db/src/client';
-import { ingestFixtures } from './scrape';
+import { ingestFixtures } from './scraper';
 import { createSnapshotIfChanged } from '../../../../packages/db/src/snapshots';
 
 async function reset() {
