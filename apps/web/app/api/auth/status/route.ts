@@ -3,7 +3,6 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
 import { z } from 'zod';
-import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
 import { detectAuthFromSession, runPlaywrightLiveCheck } from './helpers';
 
@@ -42,8 +41,7 @@ export async function GET() {
     const env = parsed.data;
     console.log('Environment validated successfully');
 
-    const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
-    console.log('CursorAuthManager initialized with state dir:', env.CURSOR_AUTH_STATE_DIR);
+    // No stored-state fast-path; always run live probe
 
     // First, check the session file
     const mostRecentSession = sessionStore.readSessionFile();

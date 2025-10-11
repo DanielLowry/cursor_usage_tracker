@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
-import { applyUploadedSessionCookies, runPlaywrightLiveCheck } from '../status/helpers';
+import { runPlaywrightLiveCheck } from '../status/helpers';
 import fs from 'fs';
 import path from 'path';
 

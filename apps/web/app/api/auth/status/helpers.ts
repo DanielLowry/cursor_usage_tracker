@@ -193,8 +193,7 @@ export async function checkUsageSummaryWithContext(context: any) {
 export async function runPlaywrightLiveCheck(sessionData: any) {
   try {
     const env = {
-      CURSOR_AUTH_STATE_DIR: process.env.CURSOR_AUTH_STATE_DIR || './data',
-      CURSOR_USAGE_URL: process.env.CURSOR_USAGE_URL || 'https://cursor.com/dashboard?tab=usage'
+      CURSOR_AUTH_STATE_DIR: process.env.CURSOR_AUTH_STATE_DIR || './data'
     };
 
     const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
