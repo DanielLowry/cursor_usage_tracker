@@ -1,3 +1,5 @@
+// Relative path: packages/shared/redis/src/index.ts
+
 import Redis from "ioredis";
 import { loadConfig } from "@cursor-usage/env";
 

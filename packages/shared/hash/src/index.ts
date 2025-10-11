@@ -1,3 +1,5 @@
+// Relative path: packages/shared/hash/src/index.ts
+
 import { createHash } from 'crypto';
 
 /**

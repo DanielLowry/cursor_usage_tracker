@@ -1,3 +1,5 @@
+// Relative path: packages/shared/normalize/src/index.test.ts
+
 /**
  * Test Suite Overview:
  * - Covers numeric normalization helpers that convert currency strings to cents, safely parse integers, and

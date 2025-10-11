@@ -1,3 +1,5 @@
+// Relative path: packages/shared/queues/src/index.test.ts
+
 /**
  * Test Purpose:
  * - Smoke-tests the BullMQ scrape queue integration by enqueueing a dummy job and verifying it is processed to

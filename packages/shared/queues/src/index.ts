@@ -1,3 +1,5 @@
+// Relative path: packages/shared/queues/src/index.ts
+
 import { Queue } from "bullmq";
 import { getRedis } from "@cursor-usage/redis";
 

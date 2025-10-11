@@ -1,3 +1,5 @@
+// Relative path: packages/shared/ingest/src/parity.test.ts
+
 /**
  * Test Purpose:
  * - Performs a parity check between normalized rows generated from the network JSON payload and a canonical

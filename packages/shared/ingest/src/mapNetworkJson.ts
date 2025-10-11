@@ -1,3 +1,5 @@
+// Relative path: packages/shared/ingest/src/mapNetworkJson.ts
+
 import { z } from 'zod';
 import { parseCurrencyToCents, parseIntSafe, toUtcMidnight } from '@cursor-usage/normalize';
 

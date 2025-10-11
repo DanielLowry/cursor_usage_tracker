@@ -1,3 +1,5 @@
+// Relative path: packages/shared/normalize/src/index.ts
+
 /**
  * Normalization utilities for numeric parsing and UTC time helpers.
  */

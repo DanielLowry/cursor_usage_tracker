@@ -1,3 +1,5 @@
+// Relative path: packages/shared/hash/src/index.test.ts
+
 /**
  * Test Suite Overview:
  * - Validates deterministic canonicalization and hashing so that semantically equivalent objects produce the

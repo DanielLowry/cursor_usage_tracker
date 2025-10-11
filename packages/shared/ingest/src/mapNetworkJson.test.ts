@@ -1,3 +1,5 @@
+// Relative path: packages/shared/ingest/src/mapNetworkJson.test.ts
+
 /**
  * Test Purpose:
  * - Ensures the network JSON mapper converts fixture data into normalized usage event records with numeric
