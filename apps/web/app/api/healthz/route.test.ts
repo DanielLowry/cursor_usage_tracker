@@ -1,4 +1,6 @@
 /**
+ * Relative path: apps/web/app/api/healthz/route.test.ts
+ *
  * Test Purpose:
  * - Validates that the health check API route responds with a JSON payload `{ ok: true }`, signalling the
  *   service is operational.

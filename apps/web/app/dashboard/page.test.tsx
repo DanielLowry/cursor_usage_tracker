@@ -1,4 +1,6 @@
 /**
+ * Relative path: apps/web/app/dashboard/page.test.tsx
+ *
  * Test Suite Overview:
  * - Exercises the dashboard server component to confirm it renders API-derived statistics and handles error
  *   scenarios by showing sensible defaults.

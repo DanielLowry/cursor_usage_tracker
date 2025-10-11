@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/api/auth/status/route.ts
+
 import { NextResponse } from 'next/server';
 // Ensure this route runs in the Node runtime and import Playwright dynamically
 export const runtime = 'nodejs';

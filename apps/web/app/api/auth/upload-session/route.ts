@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/api/auth/upload-session/route.ts
+
 import { NextResponse } from 'next/server';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
 import { runPlaywrightLiveCheck } from '../status/helpers';

@@ -1,3 +1,5 @@
+/* Relative path: apps/worker/tsup.config.ts */
+
 import { defineConfig } from "tsup"
 
 export default defineConfig({

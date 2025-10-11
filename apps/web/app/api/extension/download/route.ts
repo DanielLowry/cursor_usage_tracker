@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/api/extension/download/route.ts
+
 /*
   /api/extension/download
 
@@ -113,7 +115,6 @@ async function generateAndCache() {
     console.log('[extension/download] Cache dir exists:', CACHE_DIR);
   }
   ensureIconsExist();
-
 
   const tmpStream = fs.createWriteStream(TMP_PATH);
   const archive = archiver('zip', { zlib: { level: 9 } });

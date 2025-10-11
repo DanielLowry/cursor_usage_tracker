@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/api/summary-min/route.ts
+
 import { NextResponse } from 'next/server';
 
 // Avoid importing Prisma at build time when DATABASE_URL isn't set; return safe defaults.

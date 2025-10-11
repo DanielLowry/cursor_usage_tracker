@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/api/auth/launch-login/route.ts
+
 import { NextResponse } from 'next/server';
 import { chromium } from 'playwright';
 import { z } from 'zod';

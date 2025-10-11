@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/api/scripts/template/route.ts
+
 import { NextResponse } from 'next/server';
 
 // This route reads request.url/searchParams which prevents static optimization.

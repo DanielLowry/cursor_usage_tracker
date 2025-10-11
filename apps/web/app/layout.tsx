@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/layout.tsx
+
 import Navigation from './components/Navigation';
 import './globals.css';
 

@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/admin/login-helper/page.tsx
+
 "use client";
 
 import { useState, useEffect } from 'react';

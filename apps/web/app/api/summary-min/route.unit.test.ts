@@ -1,4 +1,6 @@
 /**
+ * Relative path: apps/web/app/api/summary-min/route.unit.test.ts
+ *
  * Test Suite Overview:
  * - Unit-tests the summary API handler by mocking Prisma responses to simulate populated data, empty tables,
  *   and failure conditions.

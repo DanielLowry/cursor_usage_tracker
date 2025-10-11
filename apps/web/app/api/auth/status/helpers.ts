@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/api/auth/status/helpers.ts
+
 import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 
 // Heuristic helper to detect whether a session file likely contains auth info

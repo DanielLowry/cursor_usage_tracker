@@ -1,3 +1,5 @@
+/* Relative path: apps/worker/package.json */
+
 {
   "name": "@cursor-usage/worker",
   "version": "0.1.0",

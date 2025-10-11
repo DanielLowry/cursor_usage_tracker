@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/dashboard/page.tsx
+
 import React from 'react';
 
 export default async function DashboardPage() {

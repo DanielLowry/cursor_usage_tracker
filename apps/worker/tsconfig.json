@@ -1,3 +1,5 @@
+/* Relative path: apps/worker/tsconfig.json */
+
 {
   "extends": "@cursor-usage/config/base.tsconfig.json",
   "compilerOptions": {},

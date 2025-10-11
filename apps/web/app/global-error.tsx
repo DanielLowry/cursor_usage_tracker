@@ -1,3 +1,5 @@
+// Relative path: apps/web/app/global-error.tsx
+
 "use client";
 
 export default function GlobalError({
