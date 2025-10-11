@@ -2,7 +2,7 @@
 
 import { NextResponse } from 'next/server';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
-import { runPlaywrightLiveCheck } from '../status/helpers';
+import { runHttpLiveCheck } from '../status/helpers';
 import fs from 'fs';
 import path from 'path';
 
@@ -43,11 +43,11 @@ export async function POST(request: Request) {
     // Save the session to filesystem with encryption
     const sessionFilename = sessionStore.save(sessionData);
 
-    // Server-side replay verification: delegate to shared runPlaywrightLiveCheck
-    // helper so verification logic is centralized in `status/helpers.ts`.
+    // Server-side replay verification via HTTP check against usage-summary
+    // Verification logic is centralized in `status/helpers.ts`.
     let verification: any = { ok: false, status: null, hasUser: false, reason: 'not_run' };
     try {
-      const liveResult = await runPlaywrightLiveCheck(sessionData as any);
+      const liveResult = await runHttpLiveCheck(sessionData as any);
       const reason = liveResult.reason ?? (("error" in liveResult && (liveResult as any).error) ? `error:${(liveResult as any).error}` : (liveResult.isAuthenticated ? 'ok' : 'user:null'));
       verification = {
         ok: !!liveResult.isAuthenticated,

@@ -4,12 +4,12 @@ The project is considered complete when all the following pass.
 
 ---
 
-## Data Acquisition (Playwright, Node)
-- [x] First‑run onboarding launches Chromium non‑headless, user can log in to Cursor, and the **profile persists** to the mounted directory.
-- [x] Hourly headless scraping **succeeds** with network JSON capture.
-- [ ] If network capture fails, **DOM table parser** runs and produces **equivalent normalized output**.
+## Data Acquisition (HTTP CSV, Node)
+- [x] Authentication verified by HTTP request to `usage-summary` using stored cookies; key fields present.
+- [x] Hourly scraping downloads **CSV export** via authenticated HTTP and persists raw blob.
+- [ ] CSV → normalized rows mapping implemented and produces **normalized output**.
 - [x] **Change detection** works: no duplicate snapshots for identical data (hash unchanged).
-- [ ] Failing both methods **logs an error**, enqueues an **alert**, and a notifier email is sent.
+- [ ] CSV ingestion failures **log an error**, enqueue an **alert**, and a notifier email is sent.
 
 ## Scheduling & Workers
 - [ ] An **hourly** schedule exists (BullMQ repeatable job or Vercel Cron) that triggers `scrape` safely (single leader, no duplicate runs).
@@ -55,9 +55,9 @@ The project is considered complete when all the following pass.
 - [ ] `/api/healthz` responds OK when app is running; worker heartbeat visible in logs/metrics.
 
 ## Testing & Resilience
-- [ ] Unit tests pass for normalization and change detection (projection tests pending) (vitest).
-- [ ] Sample network JSON fixtures parse correctly (DOM parser pending).
-- [ ] E2E tests (Playwright) cover login, dashboard load, tile toggling, and budget update.
+- [ ] Unit tests pass for CSV normalization and change detection (projection tests pending) (vitest).
+- [ ] Sample CSV fixtures parse correctly.
+- [ ] E2E tests cover login/authorization flow, dashboard load, tile toggling, and budget update.
 - [ ] Logs are structured (JSON) and write to `/data/logs/` with rotation if self‑hosted.
 - [ ] Sentry is configured (DSN via env) and reports a forced test error in both web and worker.
 

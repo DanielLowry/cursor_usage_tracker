@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 
 import { z } from 'zod';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
-import { detectAuthFromSession, runPlaywrightLiveCheck } from './helpers';
+import { detectAuthFromSession, runHttpLiveCheck } from './helpers';
 
 /**
  * Auth Status Route (Orchestrator)
@@ -71,9 +71,9 @@ export async function GET() {
     }
 
     // Always perform live authentication check via usage-summary
-    console.log('Attempting live authentication check via runPlaywrightLiveCheck');
+    console.log('Attempting live authentication check via runHttpLiveCheck');
 
-    const liveResult = await runPlaywrightLiveCheck(mostRecentSession?.data);
+    const liveResult = await runHttpLiveCheck(mostRecentSession?.data);
     console.log('Live result summary:', JSON.stringify(liveResult, null, 2));
 
     const responseBody = {

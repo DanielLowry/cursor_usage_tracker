@@ -33,7 +33,7 @@ export type CursorAuthState = z.infer<typeof CursorAuthStateSchema>;
  * Responsibility:
  * - Owns the canonical auth state file (`cursor.state.json`)
  * - Persists minimal, reusable auth data (e.g. cookies, timestamps)
- * - Bridges Playwright <-> persisted state: save/apply cookies
+ * - Persists minimal cookie state suitable for HTTP requests (no Playwright coupling)
  *
  * This intentionally does not know about uploaded session artifacts. Those are
  * higher-level inputs; the API route should distill them down into this state.
@@ -105,19 +105,41 @@ export class CursorAuthManager {
     await this.saveState(newState);
   }
 
+  // Note: Playwright-specific cookie save/apply helpers have been removed.
+
   /**
-   * Save session cookies from a Playwright context
+   * Save session cookies provided directly (no Playwright dependency)
    */
-  async saveSessionCookies(context: any): Promise<void> {
+  async saveSessionCookiesRaw(cookies: Array<{
+    name: string;
+    value: string;
+    domain?: string;
+    path?: string;
+    expires?: number;
+    httpOnly?: boolean;
+    secure?: boolean;
+    sameSite?: 'Strict' | 'Lax' | 'None';
+  }>): Promise<void> {
     try {
-      const cookies = await context.cookies();
+      const normalized = (cookies || [])
+        .filter(Boolean)
+        .map((c) => ({
+          name: String(c.name),
+          value: String(c.value ?? ''),
+          domain: String(c.domain ?? ''),
+          path: String(c.path ?? '/'),
+          ...(typeof c.expires === 'number' ? { expires: c.expires } : {}),
+          ...(typeof c.httpOnly === 'boolean' ? { httpOnly: c.httpOnly } : {}),
+          ...(typeof c.secure === 'boolean' ? { secure: c.secure } : {}),
+          ...(c.sameSite ? { sameSite: c.sameSite } : {}),
+        }));
+
       const currentState = await this.loadState();
-      
       const newState: CursorAuthState = {
         ...(currentState || {}),
         isAuthenticated: true,
         lastChecked: new Date().toISOString(),
-        sessionCookies: cookies,
+        sessionCookies: normalized,
         lastLogin: new Date().toISOString(),
         source: 'live_check',
       };
@@ -128,26 +150,12 @@ export class CursorAuthManager {
 
       await this.saveState(newState);
     } catch (error) {
-      console.error('Failed to save session cookies:', error);
+      console.error('Failed to save raw session cookies:', error);
       throw error;
     }
   }
 
-  /**
-   * Apply saved cookies to a Playwright context
-   */
-  async applySessionCookies(context: any): Promise<void> {
-    try {
-      const state = await this.loadState();
-      if (!state?.sessionCookies) {
-        return;
-      }
-
-      await context.addCookies(state.sessionCookies);
-    } catch (error) {
-      console.warn('Failed to apply session cookies:', error);
-    }
-  }
+  // Note: Playwright-specific cookie application has been removed.
 
   /**
    * Check if session is likely expired

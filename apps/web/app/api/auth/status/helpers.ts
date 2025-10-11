@@ -72,97 +72,97 @@ export function detectAuthFromSession(sessionData: any) {
   return { hasAuthData, hasTokens, matched };
 }
 
-export async function applyUploadedSessionCookies(ctx: any, session: any) {
-  if (!session) return;
-  const candidates: any[] = [];
+// Extract cookie objects from an uploaded session artifact
+export function extractCookiesFromSession(session: any): Array<{
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  expires?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: 'Strict' | 'Lax' | 'None';
+}> {
+  if (!session) return [];
+  const raw = (session as any).cookies || (session as any).Cookies || (session as any).cookieStore || (Array.isArray(session) ? session : []);
+  if (!Array.isArray(raw)) return [];
+  const normalizeSameSite = (val: any): 'Strict' | 'Lax' | 'None' | undefined => {
+    if (val == null) return undefined;
+    const s = String(val).trim().toLowerCase();
+    if (s === 'strict') return 'Strict';
+    if (s === 'lax') return 'Lax';
+    if (s === 'none') return 'None';
+    return undefined;
+  };
+  return raw
+    .filter(Boolean)
+    .map((c: any) => {
+      let domain = c.domain || c.Domain;
+      if (domain && typeof domain === 'string' && domain.startsWith('.')) domain = domain.slice(1);
+      const cookie = {
+        name: String(c.name || c.key || ''),
+        value: String(c.value || c.val || c.cookie || ''),
+        domain: domain ? String(domain) : undefined,
+        path: String(c.path || '/'),
+        expires: typeof c.expires === 'number' ? (c.expires as number) : undefined,
+        httpOnly: Boolean(c.httpOnly || c.httponly),
+        secure: Boolean(c.secure),
+        sameSite: normalizeSameSite(c.sameSite ?? c.same_site ?? c.sameSitePolicy),
+      } as {
+        name: string;
+        value: string;
+        domain?: string;
+        path?: string;
+        expires?: number;
+        httpOnly?: boolean;
+        secure?: boolean;
+        sameSite?: 'Strict' | 'Lax' | 'None';
+      };
+      return cookie;
+    })
+    .filter((c) => c.name && c.value);
+}
 
-  // Common shapes: { cookies: [...] } or top-level array
-  const rawCookies = (session as any).cookies || (session as any).Cookies || (session as any).cookieStore || null;
-  if (Array.isArray(rawCookies)) {
-    candidates.push(...rawCookies);
-  } else if (Array.isArray(session)) {
-    candidates.push(...session);
-  }
-
-  if (candidates.length === 0) return;
-
-  const toPlaywright = (c: any) => {
-    const name = c.name || c.key;
-    const value = c.value || c.val || c.cookie;
-    if (!name || value === undefined) return null;
-    let domain = c.domain || c.Domain;
-    if (domain && typeof domain === 'string' && domain.startsWith('.')) {
-      domain = domain.slice(1); // normalize leading dot
-    }
-    const path = c.path || '/';
+// Build a Cookie header string for a given target URL from cookies
+function buildCookieHeaderForUrl(cookies: any[] | undefined, targetUrl: string): string | null {
+  if (!cookies || cookies.length === 0) return null;
+  const { hostname, pathname, protocol } = new URL(targetUrl);
+  const isHttps = protocol === 'https:';
+  const now = Math.floor(Date.now() / 1000);
+  const matches: string[] = [];
+  for (const c of cookies) {
+    if (!c || !c.name) continue;
+    const name = String(c.name);
+    const value = String(c.value ?? '');
+    const domain = c.domain ? String(c.domain).replace(/^\./, '') : undefined;
+    const path = String(c.path || '/');
     const expires = typeof c.expires === 'number' ? c.expires : undefined;
     const secure = Boolean(c.secure);
-    const httpOnly = Boolean(c.httpOnly || c.httponly);
-
-    const normalizeSameSite = (raw: any) => {
-      if (raw == null) return undefined;
-      const s = String(raw).trim().toLowerCase();
-      if (s === 'strict') return 'Strict';
-      if (s === 'lax') return 'Lax';
-      if (s === 'none') return 'None';
-      return undefined;
-    };
-
-    // Playwright cookie shape (use url fallback when domain is missing)
-    const cookie: any = {
-      name: String(name),
-      value: String(value),
-      path: String(path),
-      expires,
-      secure,
-      httpOnly,
-      sameSite: normalizeSameSite(c.sameSite ?? c.same_site ?? c.sameSitePolicy),
-    };
-    if (domain) cookie.domain = String(domain);
-    if (!domain) cookie.url = 'https://cursor.com';
-    return cookie;
-  };
-
-  const converted = candidates.map(toPlaywright).filter(Boolean);
-  if (converted.length > 0) {
-    const httpOnlyCount = converted.filter((c: any) => !!c.httpOnly).length;
-    console.log('applyUploadedSessionCookies: applying cookies from uploaded session', {
-      candidateCount: candidates.length,
-      applyingCount: converted.length,
-      httpOnlyCount,
-      sample: converted.slice(0, 5).map((c: any) => ({ name: c.name, domain: c.domain, url: c.url }))
-    });
-    try {
-      await ctx.addCookies(converted as any);
-    } catch (e) {
-      console.warn('Failed to apply some uploaded session cookies:', e);
+    const domainOk = !domain || hostname === domain || hostname.endsWith('.' + domain);
+    const pathOk = pathname.startsWith(path);
+    const notExpired = !expires || expires === 0 || expires > now;
+    const secureOk = !secure || isHttps;
+    if (domainOk && pathOk && notExpired && secureOk) {
+      matches.push(`${name}=${value}`);
     }
   }
+  return matches.length > 0 ? matches.join('; ') : null;
 }
 
-export async function hydrateContextWithSessionData(context: any, authManager: any, sessionData: any) {
-  const before = await context.cookies().catch(() => []);
-  // Apply cookies that were previously saved by the auth manager (minimal reusable state)
-  await authManager.applySessionCookies(context);
-  // If uploaded session contains cookie-like data, attempt to apply it
-  await applyUploadedSessionCookies(context, sessionData);
-  const after = await context.cookies().catch(() => []);
-  const addedCount = Math.max(0, (after?.length || 0) - (before?.length || 0));
-  console.log('hydrateContextWithSessionData: cookie application summary', {
-    beforeCount: before?.length || 0,
-    afterCount: after?.length || 0,
-    addedCount
-  });
+async function fetchWithCookies(targetUrl: string, cookieHeader: string | null) {
+  const headers: Record<string, string> = { 'Accept': '*/*' };
+  if (cookieHeader) headers['Cookie'] = cookieHeader;
+  const res = await fetch(targetUrl, { method: 'GET', headers });
+  return res;
 }
 
-// API-first verification: request usage summary using context-bound cookies and validate shape
-export async function checkUsageSummaryWithContext(context: any) {
+// API verification via HTTP request using cookie header
+export async function checkUsageSummaryWithCookies(cookies: any[]) {
   try {
-    const page = await context.newPage();
-    // Use page.request bound to this context so cookies apply
-    const r = await page.request.get('https://cursor.com/api/usage-summary', { failOnStatusCode: false });
-    const status = r.status();
-    const contentType = (r.headers()['content-type'] || '').toLowerCase();
+    const cookieHeader = buildCookieHeaderForUrl(cookies, 'https://cursor.com/api/usage-summary');
+    const r = await fetchWithCookies('https://cursor.com/api/usage-summary', cookieHeader);
+    const status = r.status;
+    const contentType = (r.headers.get('content-type') || '').toLowerCase();
     let json: any = null;
     let textSample = '';
     try {
@@ -170,8 +170,6 @@ export async function checkUsageSummaryWithContext(context: any) {
     } catch {
       try { textSample = (await r.text()).slice(0, 200); } catch {}
     }
-    await page.close().catch(() => {});
-
     const isHtml = /text\/html/.test(contentType) || /<html|<body|<!doctype/i.test(textSample);
     if (isHtml) return { ok: false, status, reason: 'html_response', keys: [], contentType, textSample };
     if (status === 401 || status === 403) return { ok: false, status, reason: `status:${status}`, keys: [], contentType };
@@ -193,71 +191,55 @@ export async function checkUsageSummaryWithContext(context: any) {
   }
 }
 
-// (debug/DOM fallback helpers removed as part of simplification)
-
-// Shared Playwright-based live check used by status route and upload flow.
-// Returns a compact result: { isAuthenticated, hasUser, status?, reason?, sessionDetection?, error? }
-export async function runPlaywrightLiveCheck(sessionData: any) {
+// HTTP-based live check; persists cookies if valid and updates auth state
+export async function runHttpLiveCheck(sessionData: any) {
   try {
     const env = {
       CURSOR_AUTH_STATE_DIR: process.env.CURSOR_AUTH_STATE_DIR || './data'
     };
-
     const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
     const sessionDetection = detectAuthFromSession(sessionData);
 
-    // Dynamic import Playwright to avoid bundling in serverless builds
-    const { chromium } = await import('playwright');
-    const context = await chromium.launchPersistentContext('./data/temp-profile', { headless: true });
+    // Merge cookies: uploaded first, falling back to stored
+    const uploaded = extractCookiesFromSession(sessionData);
+    const stored = (await authManager.loadState())?.sessionCookies || [];
+    const combined = uploaded.length > 0 ? uploaded : stored;
 
-    try {
-      if (sessionData) {
-        console.log('runPlaywrightLiveCheck: applying uploaded session (redacted):', JSON.stringify({ keys: Object.keys(sessionData || {}), hasAuthData: sessionDetection.hasAuthData }, null, 2));
-      }
+    const apiProof = await checkUsageSummaryWithCookies(combined);
+    console.log('API proof (HTTP): GET /api/usage-summary →', apiProof.status, '| keys:', (apiProof.keys || []).join(','), '| reason:', apiProof.reason);
 
-      await hydrateContextWithSessionData(context, authManager, sessionData);
-
-      // Single authoritative API verification to usage-summary
-      const apiProof = await checkUsageSummaryWithContext(context);
-      console.log('API proof: GET /api/usage-summary →', apiProof.status, '| keys:', (apiProof.keys || []).join(','), '| reason:', apiProof.reason);
-
-      if (apiProof.ok) {
-        try { await authManager.saveSessionCookies(context); } catch (e) { console.warn('runPlaywrightLiveCheck: saving session cookies failed:', e); }
+    if (apiProof.ok) {
+      // Persist uploaded cookies if present; otherwise keep stored as-is
+      if (uploaded.length > 0) {
+        try { await authManager.saveSessionCookiesRaw(uploaded as any); } catch (e) { console.warn('runHttpLiveCheck: saving raw cookies failed:', e); }
+      } else {
         await authManager.updateAuthStatus(true);
-        try { await context.close(); } catch (_) {}
-        return {
-          isAuthenticated: true,
-          hasUser: true,
-          status: apiProof.status,
-          reason: apiProof.reason,
-          keys: apiProof.keys,
-          contentType: apiProof.contentType,
-          sessionDetection,
-          usageSummary: (apiProof as any).usageSummary
-        };
       }
-
-      // No DOM fallback: return diagnostics from API probe
-      await authManager.updateAuthStatus(false, apiProof.reason);
-      try { await context.close(); } catch (_) {}
       return {
-        isAuthenticated: false,
-        hasUser: false,
+        isAuthenticated: true,
+        hasUser: true,
         status: apiProof.status,
         reason: apiProof.reason,
         keys: apiProof.keys,
         contentType: apiProof.contentType,
         sessionDetection,
-        usageSummary: null
+        usageSummary: (apiProof as any).usageSummary
       };
-    } catch (liveErr) {
-      console.error('runPlaywrightLiveCheck: live check failed:', liveErr);
-      try { await context.close(); } catch (_) {}
-      await authManager.updateAuthStatus(false, `Live check failed: ${liveErr instanceof Error ? liveErr.message : String(liveErr)}`);
-      return { isAuthenticated: false, hasUser: false, status: null, reason: liveErr instanceof Error ? liveErr.message : String(liveErr), keys: [], contentType: '', sessionDetection };
     }
+
+    await authManager.updateAuthStatus(false, apiProof.reason);
+    return {
+      isAuthenticated: false,
+      hasUser: false,
+      status: apiProof.status,
+      reason: apiProof.reason,
+      keys: apiProof.keys,
+      contentType: apiProof.contentType,
+      sessionDetection,
+      usageSummary: null
+    };
   } catch (err) {
-    console.error('runPlaywrightLiveCheck: setup failed:', err);
+    console.error('runHttpLiveCheck: failed:', err);
     return { isAuthenticated: false, hasUser: false, status: null, reason: err instanceof Error ? err.message : String(err), keys: [], contentType: '' };
   }
 }

@@ -19,34 +19,29 @@ This application tracks usage data from the Cursor Pro “Usage” page for user
 
 ## 2. Data Acquisition
 
-### 2.1 Primary: Playwright (Node) + Network Capture
-- **Onboarding (`onboard` job):**
-  - Launch Chromium **non‑headless** with a **persistent user‑data‑dir** (mounted volume) so the user can log in manually.
-  - Store the profile for reuse.
+### 2.1 Primary: HTTP (Node) + CSV Export
+- **Authentication:**
+  - Persist minimal cookie state in `cursor.state.json`.
+  - Verify authentication by calling `https://cursor.com/api/usage-summary` and checking required fields: `billingCycleStart`, `billingCycleEnd`, `membershipType`.
 - **Scheduled scraping (`scrape` job):**
-  - Use **headless Chromium** with the stored profile.
-  - Navigate to the Cursor Usage page.
-  - Listen for **network responses** while the page loads.
-  - Capture JSON payloads containing usage/billing data (URLs containing `usage`, `spend`, `billing`).
-  - Parse JSON to **normalized records** (see §3).
+  - Build `Cookie` header from stored cookies.
+  - Download `https://cursor.com/api/dashboard/export-usage-events-csv`.
+  - Persist raw CSV as compressed blob.
+  - Parse CSV to **normalized records** (see §3).
 
-### 2.2 Fallback: DOM Table Parsing
-- Locate the usage table with headings:
-  `MODEL`, `INPUT (W/ CACHE WRITE)`, `INPUT (W/O CACHE WRITE)`, `CACHE READ`, `OUTPUT`, `TOTAL TOKENS`, `API COST`, `COST TO YOU`.
-- Read current billing period text.
-- Parse rows into **normalized records** (see §3).
-- Generate a **stable hash** of normalized rows for change detection.
+### 2.2 Notes
+- DOM scraping via Playwright is no longer required for normal operation.
+- A future optional UI‑driven onboarding flow may reintroduce a manual login redirect, but scraping will remain HTTP‑based.
 
 ### 2.3 Reliability & Retention
-- If both methods fail, **log error and enqueue an alert** event for the notifier worker.
-- Retain last **20 raw captures** (JSON or HTML) for debugging in `raw_blobs` (compressed).
+- On CSV download or parsing failure, **log error and enqueue an alert** event for the notifier worker.
+- Retain last **20 raw captures** (CSV) for debugging in `raw_blobs` (compressed).
 
 ### 2.4 Scheduling
 - Preferred: **BullMQ repeatable jobs** scheduled hourly (single leader worker).
 - Alternative: **Vercel Cron** hitting a protected API route that enqueues work.
 - Jobs:
-  - `onboard` (manual) → open browser & persist session.
-  - `scrape` (hourly) → fetch & store raw rows.
+  - `scrape` (hourly) → download CSV & store raw rows; enqueue `aggregate`.
   - `aggregate` (on‑demand after scrape) → compute materialized metrics & warm caches.
   - `housekeeping` (daily) → rotate logs and trim raw blob retention.
 
