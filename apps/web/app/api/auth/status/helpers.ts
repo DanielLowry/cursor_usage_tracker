@@ -90,7 +90,10 @@ export async function applyUploadedSessionCookies(ctx: any, session: any) {
     const name = c.name || c.key;
     const value = c.value || c.val || c.cookie;
     if (!name || value === undefined) return null;
-    const domain = c.domain || c.Domain;
+    let domain = c.domain || c.Domain;
+    if (domain && typeof domain === 'string' && domain.startsWith('.')) {
+      domain = domain.slice(1); // normalize leading dot
+    }
     const path = c.path || '/';
     const expires = typeof c.expires === 'number' ? c.expires : undefined;
     const secure = Boolean(c.secure);
@@ -105,21 +108,30 @@ export async function applyUploadedSessionCookies(ctx: any, session: any) {
       return undefined;
     };
 
-    // Playwright cookie shape
-    return {
+    // Playwright cookie shape (use url fallback when domain is missing)
+    const cookie: any = {
       name: String(name),
       value: String(value),
-      domain: domain ? String(domain) : undefined,
       path: String(path),
       expires,
       secure,
       httpOnly,
       sameSite: normalizeSameSite(c.sameSite ?? c.same_site ?? c.sameSitePolicy),
-    } as any;
+    };
+    if (domain) cookie.domain = String(domain);
+    if (!domain) cookie.url = 'https://cursor.com';
+    return cookie;
   };
 
   const converted = candidates.map(toPlaywright).filter(Boolean);
   if (converted.length > 0) {
+    const httpOnlyCount = converted.filter((c: any) => !!c.httpOnly).length;
+    console.log('applyUploadedSessionCookies: applying cookies from uploaded session', {
+      candidateCount: candidates.length,
+      applyingCount: converted.length,
+      httpOnlyCount,
+      sample: converted.slice(0, 5).map((c: any) => ({ name: c.name, domain: c.domain, url: c.url }))
+    });
     try {
       await ctx.addCookies(converted as any);
     } catch (e) {
@@ -129,10 +141,51 @@ export async function applyUploadedSessionCookies(ctx: any, session: any) {
 }
 
 export async function hydrateContextWithSessionData(context: any, authManager: any, sessionData: any) {
+  const before = await context.cookies().catch(() => []);
   // Apply cookies that were previously saved by the auth manager (minimal reusable state)
   await authManager.applySessionCookies(context);
   // If uploaded session contains cookie-like data, attempt to apply it
   await applyUploadedSessionCookies(context, sessionData);
+  const after = await context.cookies().catch(() => []);
+  const addedCount = Math.max(0, (after?.length || 0) - (before?.length || 0));
+  console.log('hydrateContextWithSessionData: cookie application summary', {
+    beforeCount: before?.length || 0,
+    afterCount: after?.length || 0,
+    addedCount
+  });
+}
+
+// API-first verification: request usage summary using context-bound cookies and validate shape
+export async function checkUsageSummaryWithContext(context: any) {
+  try {
+    const page = await context.newPage();
+    // Use page.request bound to this context so cookies apply
+    const r = await page.request.get('https://cursor.com/api/usage-summary', { failOnStatusCode: false });
+    const status = r.status();
+    const contentType = (r.headers()['content-type'] || '').toLowerCase();
+    let json: any = null;
+    let textSample = '';
+    try {
+      json = await r.json();
+    } catch {
+      try { textSample = (await r.text()).slice(0, 200); } catch {}
+    }
+    await page.close().catch(() => {});
+
+    const isHtml = /text\/html/.test(contentType) || /<html|<body|<!doctype/i.test(textSample);
+    if (isHtml) return { ok: false, status, reason: 'html_response', keys: [], contentType, textSample };
+    if (status === 401 || status === 403) return { ok: false, status, reason: `status:${status}`, keys: [], contentType };
+    if (status !== 200) return { ok: false, status, reason: `status:${status}`, keys: [], contentType };
+    const isObject = json && typeof json === 'object' && !Array.isArray(json);
+    if (!isObject) return { ok: false, status, reason: 'invalid_json', keys: [], contentType };
+    const keys = Object.keys(json || {});
+    const required = ['billingCycleStart', 'billingCycleEnd', 'membershipType'];
+    const hasRequired = required.every(k => k in (json || {}));
+    if (!hasRequired) return { ok: false, status, reason: 'missing_fields', keys, contentType };
+    return { ok: true, status, reason: 'api_ok', keys, contentType };
+  } catch (e) {
+    return { ok: false, status: 0, reason: `fetch_error:${e instanceof Error ? e.message : String(e)}`, keys: [], contentType: '' };
+  }
 }
 
 export function setupPageDebugHooks(page: any) {
@@ -307,33 +360,33 @@ export async function runPlaywrightLiveCheck(sessionData: any) {
 
       await hydrateContextWithSessionData(context, authManager, sessionData);
 
+      // API-first verification
+      const apiProof = await checkUsageSummaryWithContext(context);
+      console.log('API proof: GET /api/usage-summary →', apiProof.status, '| keys:', (apiProof.keys || []).join(','), '| reason:', apiProof.reason);
+
+      if (apiProof.ok) {
+        try { await authManager.saveSessionCookies(context); } catch (e) { console.warn('runPlaywrightLiveCheck: saving session cookies failed:', e); }
+        await authManager.updateAuthStatus(true);
+        try { await context.close(); } catch (_) {}
+        return { isAuthenticated: true, hasUser: true, status: apiProof.status, reason: apiProof.reason, sessionDetection };
+      }
+
+      // Secondary DOM proof for diagnostics
       const page = await context.newPage();
       setupPageDebugHooks(page);
-
       const { loginSelectors, loginFailSelectors } = getLoginSelectors();
       await navigateToUsage(page, env.CURSOR_USAGE_URL);
-
       await saveDebugArtifacts(page);
       await dumpContextCookies(context);
       await readAndLogPageStorage(page);
       await logSelectorPresence(page, loginSelectors, loginFailSelectors);
-
       const loginStatus = await evaluateLoginStatus(page, loginSelectors, loginFailSelectors);
 
-      if (loginStatus) {
-        try {
-          await authManager.saveSessionCookies(context);
-        } catch (e) {
-          console.warn('runPlaywrightLiveCheck: saving session cookies failed:', e);
-        }
-        await authManager.updateAuthStatus(true);
-      } else {
-        await authManager.updateAuthStatus(false, 'Cannot access usage data - not authenticated');
-      }
+      // Persist and update based on API result (primary). DOM is supporting only.
+      await authManager.updateAuthStatus(false, apiProof.reason || (loginStatus ? 'dom_only' : 'not_authenticated'));
 
       try { await context.close(); } catch (_) {}
-
-      return { isAuthenticated: loginStatus, hasUser: loginStatus, status: null, reason: loginStatus ? 'ok' : 'user:null', sessionDetection };
+      return { isAuthenticated: false, hasUser: loginStatus, status: apiProof.status, reason: apiProof.reason, sessionDetection };
     } catch (liveErr) {
       console.error('runPlaywrightLiveCheck: live check failed:', liveErr);
       try { await context.close(); } catch (_) {}
