@@ -2,10 +2,17 @@
 
 import { useState, useEffect } from 'react';
 
+interface UsageSummary {
+  membershipType: string;
+  billingCycleStart: string;
+  billingCycleEnd: string;
+}
+
 interface AuthStatus {
   isAuthenticated: boolean;
   lastChecked: string;
   error?: string;
+  usageSummary?: UsageSummary | null;
 }
 
 /*
@@ -95,6 +102,26 @@ export default function LoginHelperPage() {
 
                   {authStatus.error && (
                     <p className="text-sm text-red-600">{authStatus.error}</p>
+                  )}
+
+                  {authStatus.isAuthenticated && authStatus.usageSummary && (
+                    <div className="mt-4 border-t pt-4 text-left">
+                      <h3 className="text-md font-medium text-gray-900 mb-2">Usage Summary</h3>
+                      <dl className="space-y-1">
+                        <div className="flex justify-between">
+                          <dt className="text-sm text-gray-600">Membership Type</dt>
+                          <dd className="text-sm text-gray-900 font-medium">{authStatus.usageSummary.membershipType}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-sm text-gray-600">Billing Cycle Start</dt>
+                          <dd className="text-sm text-gray-900 font-medium">{new Date(authStatus.usageSummary.billingCycleStart).toLocaleDateString()}</dd>
+                        </div>
+                        <div className="flex justify-between">
+                          <dt className="text-sm text-gray-600">Billing Cycle End</dt>
+                          <dd className="text-sm text-gray-900 font-medium">{new Date(authStatus.usageSummary.billingCycleEnd).toLocaleDateString()}</dd>
+                        </div>
+                      </dl>
+                    </div>
                   )}
                 </div>
               ) : null}

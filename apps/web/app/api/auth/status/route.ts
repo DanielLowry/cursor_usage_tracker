@@ -86,7 +86,8 @@ export async function GET() {
         hasUser: liveResult.hasUser ?? false,
         keys: (liveResult as any).keys ?? [],
         contentType: (liveResult as any).contentType ?? null
-      }
+      },
+      usageSummary: (liveResult as any).usageSummary ?? null
     };
 
     const httpStatus = liveResult.isAuthenticated

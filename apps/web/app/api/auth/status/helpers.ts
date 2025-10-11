@@ -180,7 +180,12 @@ export async function checkUsageSummaryWithContext(context: any) {
     const required = ['billingCycleStart', 'billingCycleEnd', 'membershipType'];
     const hasRequired = required.every(k => k in (json || {}));
     if (!hasRequired) return { ok: false, status, reason: 'missing_fields', keys, contentType };
-    return { ok: true, status, reason: 'api_ok', keys, contentType };
+    const usageSummary = {
+      membershipType: (json as any).membershipType,
+      billingCycleStart: (json as any).billingCycleStart,
+      billingCycleEnd: (json as any).billingCycleEnd,
+    };
+    return { ok: true, status, reason: 'api_ok', keys, contentType, usageSummary };
   } catch (e) {
     return { ok: false, status: 0, reason: `fetch_error:${e instanceof Error ? e.message : String(e)}`, keys: [], contentType: '' };
   }
@@ -225,7 +230,8 @@ export async function runPlaywrightLiveCheck(sessionData: any) {
           reason: apiProof.reason,
           keys: apiProof.keys,
           contentType: apiProof.contentType,
-          sessionDetection
+          sessionDetection,
+          usageSummary: (apiProof as any).usageSummary
         };
       }
 
@@ -239,7 +245,8 @@ export async function runPlaywrightLiveCheck(sessionData: any) {
         reason: apiProof.reason,
         keys: apiProof.keys,
         contentType: apiProof.contentType,
-        sessionDetection
+        sessionDetection,
+        usageSummary: null
       };
     } catch (liveErr) {
       console.error('runPlaywrightLiveCheck: live check failed:', liveErr);
