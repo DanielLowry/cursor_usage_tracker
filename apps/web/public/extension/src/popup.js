@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (verifyResponse.error) throw new Error(verifyResponse.error);
 
       // If not authenticated, prompt user to login and abort
-      if (!verifyResponse.authProbe || !verifyResponse.authProbe.authenticated) {
+      if (!verifyResponse.authProbe || !verifyResponse.authProbe.ok) {
         const reason = verifyResponse.authProbe ? verifyResponse.authProbe.reason : 'unknown';
         showError('Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
         captureBtn.disabled = false;
@@ -72,9 +72,8 @@ document.addEventListener('DOMContentLoaded', () => {
         throw new Error(response.error);
       }
 
-      const user = verifyResponse.authProbe.user;
-      const display = user?.email || user?.name || 'unknown user';
-      showSuccess('Authenticated as ' + display + '. Session captured and uploaded successfully!');
+      const keys = verifyResponse.authProbe.keys || [];
+      showSuccess('Authenticated. Keys: ' + (keys.join(', ') || 'n/a') + '. Session captured and uploaded successfully!');
     } catch (error) {
       showError(`Failed to capture session: ${error.message}`);
       captureBtn.disabled = false;
@@ -98,8 +97,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const details = [probe?.reason, probe?.status ? `status:${probe.status}` : null, probe?.origin ? `origin:${probe.origin}` : null, probe?.href ? `href:${probe.href}` : null].filter(Boolean).join(' | ');
         showError(`Not authenticated — please open https://cursor.com/dashboard and log in. (${details || 'no_details'})`);
       } else {
-        const who = probe.user?.email || probe.user?.name || 'user';
-        showSuccess(`Authenticated as ${who}`);
+        const keys = probe.keys || [];
+        showSuccess(`Authenticated. Keys: ${keys.join(', ') || 'n/a'}`);
       }
     } catch (err) {
       showError('Auth probe failed: ' + (err.message || String(err)));

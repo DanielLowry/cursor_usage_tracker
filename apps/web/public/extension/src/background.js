@@ -30,16 +30,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // Default upload URL 
 const DEFAULT_UPLOAD_URL = 'http://192.168.0.1:3000/api/auth/upload-session';
 
+/**
+ * Capture the user's Cursor session and upload it to the configured server.
+ *
+ * Gate A is enforced first by probing the real `https://cursor.com` tab using
+ * a first‑party, credentialed fetch to `/api/usage-summary`. If the probe
+ * fails (401/403, HTML/login, 3xx/network error, or empty/unauthorized JSON),
+ * the function throws and nothing is uploaded. On success, it gathers cookies
+ * and storage and POSTs them to the `uploadUrl`.
+ *
+ * Returns `{ success: true }` on successful upload; throws `Error` with a
+ * clear message on failure.
+ */
 async function captureCursorSession() {
   try {
     console.log('Starting session capture...');
-    // Gate: ensure the session in the browser is actually authenticated by
-    // probing /api/auth/me inside a cursor.com page (so first-party cookies are used).
-    const preProbe = await probeCursorAuthInTab();
-    if (!preProbe || !preProbe.authenticated) {
-      const reason = preProbe ? preProbe.reason : 'unknown';
-      throw new Error('Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
-    }
+		// Gate A: ensure the session in the browser is actually authenticated by
+		// probing /api/usage-summary inside a cursor.com page (first-party cookies).
+		const preProbe = await probeCursorAuthInTab();
+		if (!preProbe || !preProbe.ok) {
+			const reason = preProbe ? preProbe.reason : 'unknown';
+			throw new Error('Not authenticated — please open https://cursor.com/dashboard and log in. (' + reason + ')');
+		}
     // Capture cookies, tabs and storage (shared helper)
     const { cookies, tabs, storage } = await captureSessionData();
 
@@ -151,69 +163,105 @@ async function getOrOpenCursorTab() {
   return tab;
 }
 
+/**
+ * Gate A: Probe authentication status from an actual `https://cursor.com` tab.
+ *
+ * Performs a single-probe (with one quick retry ~800ms later) against
+ * `/api/usage-summary` using `credentials: 'include'` to ensure first‑party
+ * cookies are used. Treats 3xx, network errors, HTML responses, 401/403, and
+ * obviously unauthenticated or empty JSON as failures.
+ *
+ * Logs origin, href, status, and top-level JSON keys for observability.
+ *
+ * Returns a structured object like:
+ * `{ ok: boolean, origin: string, href: string, status: number, keys?: string[], reason?: string }`
+ */
 async function probeCursorAuthInTab() {
-  const tab = await getOrOpenCursorTab();
+	const tab = await getOrOpenCursorTab();
 
-  // Ensure we’re really on the apex origin before probing
-  if (!/^https:\/\/cursor\.com\//.test(tab.url || '')) {
-    await chrome.tabs.update(tab.id, { url: 'https://cursor.com/dashboard' });
-    await new Promise(r => setTimeout(r, 1500));
-  }
+	// Ensure we’re really on the apex origin before probing
+	if (!/^https:\/\/cursor\.com\//.test(tab.url || '')) {
+		await chrome.tabs.update(tab.id, { url: 'https://cursor.com/dashboard' });
+		await new Promise(r => setTimeout(r, 1500));
+	}
 
-  const [exec] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    world: 'MAIN', // run in page, not isolated world
-    func: async () => {
-      const origin = location.origin, href = location.href;
+	const [exec] = await chrome.scripting.executeScript({
+		target: { tabId: tab.id },
+		world: 'MAIN', // run in page, not isolated world
+		func: async () => {
+			const origin = location.origin, href = location.href;
 
-      // Helper to make uniform results
-      const pack = (ok, extra = {}) => ({
-        ok, origin, href, ...extra
-      });
+			const expectedKeys = ['totals', 'byModel', 'period'];
 
-      // Try twice (late hydration)
-      const attempt = async () => {
-        try {
-          const r = await fetch('/api/auth/me', { credentials: 'include' });
-          let j = null;
-          try { j = await r.json(); } catch {}
-          return { status: r.status, json: j };
-        } catch (e) {
-          return { status: 0, json: null, error: String(e) };
-        }
-      };
+			const pack = (ok, extra = {}) => ({ ok, origin, href, ...extra });
 
-      const a1 = await attempt();
-      if (a1.status === 200 && a1.json && a1.json.user) {
-        return pack(true, { status: 200, user: a1.json.user });
-      }
+			const attempt = async () => {
+				try {
+					const r = await fetch('/api/usage-summary', { credentials: 'include' });
+					const contentType = r.headers.get('content-type') || '';
+					let json = null;
+					let textSample = '';
+					try {
+						json = await r.json();
+					} catch {
+						try { textSample = (await r.text()).slice(0, 200); } catch {}
+					}
+					return { status: r.status, contentType, json, textSample };
+				} catch (e) {
+					return { status: 0, contentType: '', json: null, textSample: '', error: String(e) };
+				}
+			};
 
-      // small delay, then retry
-      await new Promise(r => setTimeout(r, 900));
-      const a2 = await attempt();
-      const userPresent = !!(a2.status === 200 && a2.json && a2.json.user);
+			const evaluate = (resp) => {
+				const isHtml = /text\/html/i.test(resp.contentType) || (resp.textSample && /<html|<body|<!doctype/i.test(resp.textSample));
+				if (isHtml) return { ok: false, reason: 'html_response' };
+				if (resp.status >= 300 && resp.status < 400) return { ok: false, reason: `status:${resp.status}` };
+				if (resp.status === 401 || resp.status === 403) return { ok: false, reason: `status:${resp.status}` };
+				if (resp.status !== 200) return { ok: false, reason: `status:${resp.status}` };
+				const j = resp.json;
+				const isObject = j && typeof j === 'object' && !Array.isArray(j);
+				if (!isObject) return { ok: false, reason: 'invalid_json' };
+				const keys = Object.keys(j || {});
+				const hitCount = expectedKeys.filter(k => k in (j || {})).length;
+				const hasUnauthorized = typeof j.error === 'string' && /unauth|forbid|denied/i.test(j.error);
+				const looksEmptyShell = keys.length <= 1 || hitCount === 0;
+				if (hasUnauthorized) return { ok: false, reason: 'api_unauthorized', keys };
+				if (looksEmptyShell) return { ok: false, reason: 'empty_shell', keys };
+				return { ok: true, keys };
+			};
 
-      if (userPresent) return pack(true, { status: 200, user: a2.json.user });
+			const a1 = await attempt();
+			let ev1 = evaluate(a1);
+			if (ev1.ok) {
+				console.log('[usage-summary probe] origin:', origin, 'href:', href, 'status:', a1.status, 'keys:', ev1.keys?.join(', ') || 'none');
+				return pack(true, { status: a1.status, keys: ev1.keys });
+			}
 
-      // Build a clear reason in ALL cases
-      let reason = 'unknown';
-      if (a2.error) reason = `fetch_error:${a2.error}`;
-      else if (a2.status !== 200) reason = `status:${a2.status}`;
-      else if (!a2.json) reason = 'invalid_json';
-      else if (!a2.json.user) reason = 'user:null';
+			await new Promise(r => setTimeout(r, 800));
+			const a2 = await attempt();
+			let ev2 = evaluate(a2);
+			console.log('[usage-summary probe] origin:', origin, 'href:', href, 'status:', a2.status, 'keys:', (ev2.keys || []).join(', '));
+			if (ev2.ok) return pack(true, { status: a2.status, keys: ev2.keys });
 
-      return pack(false, { status: a2.status, reason, raw: a2.json ?? null });
-    }
-  });
+			const reason = a2.error ? `fetch_error:${a2.error}` : (ev2.reason || 'unknown');
+			return pack(false, { status: a2.status, reason, keys: ev2.keys || [], sample: a2.textSample || null });
+		}
+	});
 
-  const result = exec?.result ?? { ok: false, reason: 'no_result', origin: null, href: null, status: 0 };
-  // Log loudly for debugging
-  console.log('[probeCursorAuthInTab] result:', result);
-  return result;
+	const result = exec?.result ?? { ok: false, reason: 'no_result', origin: null, href: null, status: 0 };
+	console.log('[probeCursorAuthInTab] result:', result);
+	return result;
 }
 
 
 // Capture cookies and storage and return them together with an auth probe.
+/**
+ * Capture cookies and storage and return them along with the Gate A probe
+ * result, without uploading. Used by the popup to present auth status and
+ * decide whether to proceed with upload.
+ *
+ * Returns `{ cookies, localStorage, sessionStorage, authProbe, timestamp }`.
+ */
 async function captureAndVerifyCursor() {
   // Reuse capture logic but do not upload here — just return results
   console.log('Starting captureAndVerifyCursor...');
@@ -256,13 +304,7 @@ async function captureAndVerifyCursor() {
     }
   }
 
-  const probe = await probeCursorAuthInTab();
-
-  if (!probe.ok && probe.origin !== 'https://cursor.com') {
-    await chrome.tabs.update(tab.id, { url: 'https://cursor.com/dashboard' });
-    await new Promise(r => setTimeout(r, 1500));
-    probe = await probeCursorAuthInTab(); // try again
-  }
+	const probe = await probeCursorAuthInTab();
 
   return {
     cookies,
