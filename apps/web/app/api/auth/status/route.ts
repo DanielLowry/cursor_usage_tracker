@@ -2,24 +2,10 @@ import { NextResponse } from 'next/server';
 // Ensure this route runs in the Node runtime and import Playwright dynamically
 export const runtime = 'nodejs';
 
-// Playwright is a heavy native dependency that should not be bundled for the Edge/worker runtime.
-// Import it dynamically inside the handler so the Next build step doesn't try to bundle it.
 import { z } from 'zod';
 import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
-import {
-  detectAuthFromSession,
-  hydrateContextWithSessionData,
-  setupPageDebugHooks,
-  navigateToUsage,
-  saveDebugArtifacts,
-  dumpContextCookies,
-  readAndLogPageStorage,
-  logSelectorPresence,
-  evaluateLoginStatus,
-  getLoginSelectors,
-  isStoredStateValid,
-} from './helpers';
+import { detectAuthFromSession, isStoredStateValid, runPlaywrightLiveCheck } from './helpers';
 
 /**
  * Auth Status Route (Orchestrator)
@@ -39,8 +25,6 @@ const envSchema = z.object({
   CURSOR_AUTH_STATE_DIR: z.string().min(1).default('./data'),
   CURSOR_USAGE_URL: z.string().url().default('https://cursor.com/dashboard?tab=usage'),
 });
-
-// helpers moved to ./helpers
 
 export async function GET() {
   try {
@@ -64,7 +48,7 @@ export async function GET() {
     // First, check the session file
     const mostRecentSession = sessionStore.readSessionFile();
     //console.log('Most Recent Session:', mostRecentSession);
-    
+
     const sessionKeys = Object.keys(mostRecentSession?.data || {});
     console.log("Session data keys", sessionKeys);
 
@@ -102,7 +86,8 @@ export async function GET() {
           isAuthenticated: true,
           lastChecked: storedState.lastChecked,
           source: 'stored_state',
-          sessionFile: mostRecentSession?.filename
+          sessionFile: mostRecentSession?.filename,
+          sessionDetection
         });
       } else {
         console.log('Stored state is not valid. Reasons:', {
@@ -115,98 +100,37 @@ export async function GET() {
       console.log('No valid stored authentication state found');
     }
 
-    // If no valid stored state, do a live check
-    console.log('Attempting live authentication check');
+    console.log('Attempting live authentication check via runPlaywrightLiveCheck');
 
-    // Dynamic import to avoid bundling Playwright into the edge/worker build output
-    const { chromium } = await import('playwright');
+    const liveResult = await runPlaywrightLiveCheck(mostRecentSession?.data);
+    console.log('Live result summary:', JSON.stringify(liveResult, null, 2));
 
-    const context = await chromium.launchPersistentContext('./data/temp-profile', {
-      headless: true,
-    });
-
-    // Log context creation details
-    if (mostRecentSession?.data) {
-      console.log('Session Data to be Applied (Redacted):', JSON.stringify({
-        keys: Object.keys(mostRecentSession.data),
-        hasAuthData: sessionDetection.hasAuthData,
-        hasTokens: sessionDetection.hasTokens,
-        detectionMatches: sessionDetection.matched,
-        // Optionally, log any non-sensitive metadata about the session
-        createdAt: mostRecentSession.data.createdAt
-      }, null, 2));
-    }
-
-    // Before navigation: hydrate cookies from prior successful runs and uploaded session
-    try {
-      await hydrateContextWithSessionData(context, authManager, mostRecentSession?.data);
-
-      // Improved Playwright-based authentication check
-      const page = await context.newPage();
-
-      // Playwright page / network debug hooks
-      setupPageDebugHooks(page);
-
-      // Define login and logout selectors
-      const { loginSelectors, loginFailSelectors } = getLoginSelectors();
-
-      // Navigate and wait for page readiness
-      await navigateToUsage(page, env.CURSOR_USAGE_URL);
-
-      // Save debug artifacts (screenshot + HTML)
-      await saveDebugArtifacts(page);
-
-      // Dump cookies and storage for diagnosis
-      await dumpContextCookies(context);
-      await readAndLogPageStorage(page);
-
-      // Log which selectors (if any) are present on the page
-      await logSelectorPresence(page, loginSelectors, loginFailSelectors);
-
-      // Attempt to detect login status using Playwright's native waiters
-      const loginStatus = await evaluateLoginStatus(page, loginSelectors, loginFailSelectors);
-
-      // Persist cookies and update auth state
-      if (loginStatus) {
-        try {
-          await authManager.saveSessionCookies(context);
-        } catch (e) {
-          console.warn('Saving session cookies failed:', e);
-        }
-        await authManager.updateAuthStatus(true);
-      } else {
-        await authManager.updateAuthStatus(false, 'Cannot access usage data - not authenticated');
+    const responseBody = {
+      isAuthenticated: liveResult.isAuthenticated,
+      lastChecked: new Date().toISOString(),
+      source: 'live_check' as const,
+      sessionDetection: liveResult.sessionDetection ?? sessionDetection,
+      sessionFile: mostRecentSession?.filename ?? null,
+      verification: {
+        status: liveResult.status ?? null,
+        reason: liveResult.reason ?? null,
+        hasUser: liveResult.hasUser ?? false,
       }
+    };
 
-      const responseBody = {
-        isAuthenticated: loginStatus,
-        lastChecked: new Date().toISOString(),
-        source: 'live_check' as const,
-        sessionDetection: sessionDetection,
-        ...(loginStatus ? {} : { error: 'Cannot access usage data - not authenticated' })
-      };
-      return NextResponse.json(responseBody);
+    const responseWithError = liveResult.isAuthenticated
+      ? responseBody
+      : {
+          ...responseBody,
+          error: liveResult.reason || 'Cannot access usage data - not authenticated'
+        };
 
-    } catch (liveCheckError) {
-      console.error('Live authentication check failed:', liveCheckError);
-      
-      // Save failed state via auth manager (canonical)
-      await authManager.updateAuthStatus(
-        false,
-        `Live check failed: ${liveCheckError instanceof Error ? liveCheckError.message : 'Unknown error'}`
-      );
-
-      const errorResponse = {
-        isAuthenticated: false,
-        lastChecked: new Date().toISOString(),
-        source: 'live_check' as const,
-        error: 'Live authentication check failed'
-      };
-      return NextResponse.json(errorResponse, { status: 500 });
-    }
+    return NextResponse.json(responseWithError, {
+      status: liveResult.isAuthenticated ? 200 : 200
+    });
   } catch (error) {
     console.error('Complete authentication status check failed:', error);
-    
+
     const finalErrorResponse = {
       isAuthenticated: false,
       lastChecked: new Date().toISOString(),
