@@ -1,4 +1,5 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as pathModule from 'path';
 import * as os from 'os';
