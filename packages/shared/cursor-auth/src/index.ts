@@ -1,7 +1,7 @@
 // Relative path: packages/shared/cursor-auth/src/index.ts
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'fs/promises';
+import * as pathModule from 'path';
 import { z } from 'zod';
 import * as crypto from 'crypto';
 
@@ -43,7 +43,7 @@ export class CursorAuthManager {
   private statePath: string;
 
   constructor(stateDir: string = './data') {
-    this.statePath = path.join(stateDir, 'cursor.state.json');
+    this.statePath = pathModule.join(stateDir, 'cursor.state.json');
   }
 
   /**
@@ -70,7 +70,7 @@ export class CursorAuthManager {
   async saveState(state: CursorAuthState): Promise<void> {
     try {
       // Ensure directory exists
-      const dir = path.dirname(this.statePath);
+      const dir = pathModule.dirname(this.statePath);
       await fs.promises.mkdir(dir, { recursive: true });
       
       // Validate state before saving
@@ -188,7 +188,7 @@ export class CursorAuthManager {
    */
   getStatePath(): string {
     try {
-      const dir = path.dirname(this.statePath);
+      const dir = pathModule.dirname(this.statePath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
@@ -306,10 +306,19 @@ export function buildCookieHeader(cookies: RawCookie[] | undefined): string | nu
  *   ok=true when HTTP 200 and JSON contains membershipType, billingCycleStart, billingCycleEnd.
  */
 export async function validateRawCookies(cookies: RawCookie[]) {
+  const enableDebug = process.env.DEBUG_AUTH === '1';
+  if (enableDebug) {
+    console.log('cursor-auth: validateRawCookies starting with', cookies.length, 'cookies');
+  }
+
   try {
     const cookieHeader = buildCookieHeader(cookies);
     const headers: Record<string, string> = { Accept: '*/*' };
     if (cookieHeader) headers['Cookie'] = cookieHeader;
+
+    if (enableDebug) {
+      console.log('cursor-auth: validateRawCookies fetching https://cursor.com/api/usage-summary');
+    }
 
     const res = await fetch('https://cursor.com/api/usage-summary', { method: 'GET', headers });
     const status = res.status;
@@ -320,6 +329,12 @@ export async function validateRawCookies(cookies: RawCookie[]) {
       json = await res.json();
     } catch {
       try { textSample = (await res.text()).slice(0, 200); } catch {}
+    }
+
+    if (enableDebug) {
+      console.log('cursor-auth: validateRawCookies status:', status, 'contentType:', contentType);
+      console.log('cursor-auth: validateRawCookies keys:', json ? Object.keys(json) : 'no json');
+      if (textSample) console.log('cursor-auth: validateRawCookies text sample:', textSample);
     }
 
     const isHtml = /text\/html/.test(contentType) || /<html|<body|<!doctype/i.test(textSample);
@@ -340,8 +355,14 @@ export async function validateRawCookies(cookies: RawCookie[]) {
       billingCycleStart: (json as any).billingCycleStart,
       billingCycleEnd: (json as any).billingCycleEnd,
     };
+    if (enableDebug) {
+      console.log('cursor-auth: validateRawCookies success, hasRequired:', hasRequired);
+    }
     return { ok: true, status, reason: 'api_ok', keys, contentType, usageSummary };
   } catch (e) {
+    if (enableDebug) {
+      console.log('cursor-auth: validateRawCookies fetch error:', e instanceof Error ? e.message : String(e));
+    }
     return { ok: false, status: 0, reason: `fetch_error:${e instanceof Error ? e.message : String(e)}`, keys: [], contentType: '' };
   }
 }
@@ -359,11 +380,28 @@ export async function validateRawCookies(cookies: RawCookie[]) {
  * - Promise<Array<RawCookie>> possibly empty if state file missing or invalid.
  */
 export async function readRawCookies(stateDir: string = './data'): Promise<RawCookie[]> {
+  const enableDebug = process.env.DEBUG_AUTH === '1';
+  if (enableDebug) {
+    const resolvedDir = pathModule.resolve(stateDir);
+    console.log('cursor-auth: readRawCookies resolved dir:', resolvedDir);
+    const fullPath = pathModule.join(resolvedDir, 'cursor.state.json');
+    console.log('cursor-auth: readRawCookies full path:', fullPath);
+    const exists = await fs.access(fullPath).then(() => true).catch(() => false);
+    console.log('cursor-auth: readRawCookies file exists:', exists);
+  }
+
   try {
     const manager = new CursorAuthManager(stateDir);
     const state = await manager.loadState();
-    return (state && state.sessionCookies) || [];
+    const cookies = (state && state.sessionCookies) || [];
+    if (enableDebug) {
+      console.log('cursor-auth: readRawCookies cookie count:', cookies.length);
+    }
+    return cookies;
   } catch (e) {
+    if (enableDebug) {
+      console.log('cursor-auth: readRawCookies failed:', e.message);
+    }
     return [];
   }
 }
@@ -385,7 +423,7 @@ export async function readRawCookies(stateDir: string = './data'): Promise<RawCo
 export async function writeRawCookiesAtomic(cookies: RawCookie[], stateDir: string = './data'): Promise<void> {
   try {
     const manager = new CursorAuthManager(stateDir);
-    const dir = path.dirname(manager.getStatePath());
+    const dir = pathModule.dirname(manager.getStatePath());
     await fs.promises.mkdir(dir, { recursive: true });
 
     const tempPath = manager.getStatePath() + `.tmp-${crypto.randomBytes(8).toString('hex')}`;
@@ -420,7 +458,7 @@ export async function writeRawCookiesAtomic(cookies: RawCookie[], stateDir: stri
  */
 export async function persistEncryptedSessionData(session: SessionData, stateDir: string = './data'): Promise<string> {
   try {
-    const dir = path.join(stateDir, 'diagnostics');
+    const dir = pathModule.join(stateDir, 'diagnostics');
     await fs.promises.mkdir(dir, { recursive: true });
 
     const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
@@ -443,7 +481,7 @@ export async function persistEncryptedSessionData(session: SessionData, stateDir
     };
 
     const filename = `session_diag_${Date.now()}.json`;
-    const filePath = path.join(dir, filename);
+    const filePath = pathModule.join(dir, filename);
     await fs.promises.writeFile(filePath, JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 });
     return filename;
   } catch (e) {
@@ -465,11 +503,22 @@ export async function persistEncryptedSessionData(session: SessionData, stateDir
  * - Promise<Record<string,string>> suitable for fetch() `headers`.
  */
 export async function getAuthHeaders(stateDir: string = './data'): Promise<Record<string, string>> {
+  const enableDebug = process.env.DEBUG_AUTH === '1';
   try {
     const cookies = await readRawCookies(stateDir);
     const header = buildCookieHeader(cookies);
-    return header ? { Cookie: header } : {};
+    const result = header ? { Cookie: header } : {};
+    if (enableDebug) {
+      console.log('cursor-auth: getAuthHeaders length:', header ? header.length : 0);
+      if (header) {
+        console.log('cursor-auth: getAuthHeaders preview:', header.substring(0, 50) + '...');
+      }
+    }
+    return result;
   } catch (e) {
+    if (enableDebug) {
+      console.log('cursor-auth: getAuthHeaders failed:', e.message);
+    }
     return {};
   }
 }
