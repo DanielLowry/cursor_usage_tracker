@@ -10,7 +10,7 @@ import { z } from 'zod';
 // gzip helper for storing compressed payloads
 import * as zlib from 'zlib';
 // URL utilities
-import * as url from 'url';
+// URL utilities (not used in build; omitted to satisfy linter)
 import * as fs from 'fs';
 import * as path from 'path';
 import { Queue } from 'bullmq';
@@ -89,15 +89,20 @@ export async function runScrape(): Promise<ScrapeResult> {
     // try repo web data path — robustly find repo root by walking up from current cwd
     // Look for a repo-level marker (pnpm-workspace.yaml, turbo.json, or .git)
     let repoRoot = process.cwd();
-    while (true) {
+    // Walk up the filesystem to find a repo-level marker. Use a bounded loop
+    // (max 100 iterations) to avoid constant-condition lint errors and to be
+    // defensive against pathological symlinked directory structures.
+    let foundRoot = false;
+    for (let i = 0; i < 100; i++) {
       const marker1 = path.join(repoRoot, 'pnpm-workspace.yaml');
       const marker2 = path.join(repoRoot, 'turbo.json');
       const marker3 = path.join(repoRoot, '.git');
-      if (fs.existsSync(marker1) || fs.existsSync(marker2) || fs.existsSync(marker3)) break;
+      if (fs.existsSync(marker1) || fs.existsSync(marker2) || fs.existsSync(marker3)) { foundRoot = true; break; }
       const parent = path.dirname(repoRoot);
-      if (parent === repoRoot) { repoRoot = process.cwd(); break; }
+      if (parent === repoRoot) break;
       repoRoot = parent;
     }
+    if (!foundRoot) repoRoot = process.cwd();
     const alt = path.join(repoRoot, 'apps', 'web', 'data');
     const altStatePath = path.join(alt, 'cursor.state.json');
     if (fs.existsSync(altStatePath)) {

@@ -3,3 +3,6 @@
 # generated declarations
 **/*.d.ts
 **/*.d.mts
+
+# Ignore local environment files (may be symlinked to private locations)
+.env*
