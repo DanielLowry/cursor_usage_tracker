@@ -13,6 +13,15 @@ import * as zlib from 'zlib';
 import * as url from 'url';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Queue } from 'bullmq';
+import { getRedis } from '@cursor-usage/redis';
+
+// Export a lazy-initialized queue to avoid runtime ordering issues when this
+// module is imported by the scheduler or when the worker runs in different
+// execution contexts. The scheduler expects a `scraperQueue` with an `.add`
+// method, so expose an instance created from the shared redis connection.
+const connection = getRedis();
+export const scraperQueue = new Queue('scraper', { connection });
 
 
 // Expected environment variables and basic validation/transforms
@@ -103,6 +112,7 @@ export async function runScrape(): Promise<ScrapeResult> {
   // Build cookie header from shared canonical state
   const headers = await getAuthHeaders(chosenStateDir);
   const cookieHeader = headers['Cookie'] || null;
+
 
   // Pre-auth probe: usage-summary
   const usageRes = await fetchWithCursorCookies('https://cursor.com/api/usage-summary', cookieHeader);
