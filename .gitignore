@@ -44,3 +44,5 @@ next-env.d.ts
 
 # local data (logs, etc.)
 /data
+
+/.tmp-test-auth/*
