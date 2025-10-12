@@ -33,7 +33,7 @@ const CursorAuthStateSchema = z.object({
   userAgent: z.string().optional(),
   lastLogin: z.string().optional(),
   expiresAt: z.string().optional(),
-  source: z.enum(['stored_state', 'live_check']).optional(),
+  source: z.enum(['stored_state', 'live_check', 'test']).optional(),
   error: z.string().optional(),
 });
 
@@ -102,7 +102,8 @@ export async function validateRawCookies(cookies: RawCookie[]) {
     const targetUrl = 'https://cursor.com/api/usage-summary';
     console.log(`cursor-auth: validateRawCookies fetching ${targetUrl}`);
 
-    const res = await fetch(targetUrl, { method: 'GET', headers });
+    // Use manual redirect handling so we can detect 3xx redirects (e.g. to /login)
+    const res = await fetch(targetUrl, { method: 'GET', headers, redirect: 'manual' });
     const status = res.status;
     const contentType = (res.headers.get('content-type') || '').toLowerCase();
     let json: any = null;
