@@ -2,7 +2,7 @@
 
 import { NextResponse } from 'next/server';
 import { sessionStore } from '../../../../lib/utils/file-session-store';
-import { runHttpLiveCheck } from '../status/helpers';
+import { persistEncryptedSessionData, deriveRawCookiesFromSessionData, validateRawCookies, writeRawCookiesAtomic } from '../../../../../../packages/shared/cursor-auth/src';
 import fs from 'fs';
 import path from 'path';
 
@@ -43,29 +43,25 @@ export async function POST(request: Request) {
     // Save the session to filesystem with encryption
     const sessionFilename = sessionStore.save(sessionData);
 
-    // Server-side replay verification via HTTP check against usage-summary
-    // Verification logic is centralized in `status/helpers.ts`.
+    // Persist encrypted diagnostics-only copy in shared package
+    try { await persistEncryptedSessionData(sessionData); } catch (e) { console.warn('persistEncryptedSessionData failed:', e); }
+
+    // Derive raw cookies and validate against usage-summary before writing canonical state
+    const derived = deriveRawCookiesFromSessionData(sessionData as any);
     let verification: any = { ok: false, status: null, hasUser: false, reason: 'not_run' };
     try {
-      const liveResult = await runHttpLiveCheck(sessionData as any);
-      const reason = liveResult.reason ?? (("error" in liveResult && (liveResult as any).error) ? `error:${(liveResult as any).error}` : (liveResult.isAuthenticated ? 'ok' : 'user:null'));
-      verification = {
-        ok: !!liveResult.isAuthenticated,
-        status: liveResult.status ?? null,
-        hasUser: !!liveResult.hasUser,
-        reason
-      };
-      // Persist a compact verification file next to the session file for auditing
-      try {
-        const sessionsDir = path.join(process.cwd(), 'sessions');
-        const verificationFilename = sessionFilename + '.verification.json';
-        fs.writeFileSync(path.join(sessionsDir, verificationFilename), JSON.stringify({ verification, checkedAt: new Date().toISOString() }), { encoding: 'utf8', mode: 0o600 });
-      } catch (e) {
-        console.warn('Failed to write verification file:', e);
+      const apiProof = await validateRawCookies(derived);
+      verification = { ok: apiProof.ok, status: apiProof.status ?? null, hasUser: apiProof.ok, reason: apiProof.reason ?? 'not_run' };
+      if (apiProof.ok) {
+        try {
+          await writeRawCookiesAtomic(derived);
+        } catch (e) {
+          console.warn('Failed to write canonical state:', e);
+        }
       }
     } catch (e) {
-      console.error('Verification delegation failed:', e);
-      verification = { ok: false, status: null, hasUser: false, reason: `delegation:${e instanceof Error ? e.message : String(e)}` };
+      console.error('Validation failed:', e);
+      verification = { ok: false, status: null, hasUser: false, reason: `validation_error:${e instanceof Error ? e.message : String(e)}` };
     }
 
     return NextResponse.json({ success: true, sessionFilename, verification }, { headers: responseHeaders });

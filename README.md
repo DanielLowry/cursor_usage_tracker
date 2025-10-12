@@ -34,7 +34,7 @@ For specific commands and step-by-step instructions, please refer to the OS-spec
 .
 ├─ apps/
 │  ├─ web/       # Next.js (App Router)
-│  └─ worker/    # Node worker (Playwright jobs)
+│  └─ worker/    # Node worker
 ├─ packages/
 │  ├─ db/        # Prisma schema and DB client (scaffold)
 │  ├─ types/     # Shared TypeScript types
@@ -134,11 +134,12 @@ pnpm clean
    pnpm --filter @cursor-usage/db db:seed   # optional
    ```
 
-4. **Install Playwright browsers** (needed for worker tests and scraping)
+4. **Auth consolidation overview**
 
-   ```bash
-   pnpm --filter @cursor-usage/worker install_playwright
-   ```
+   - Canonical state lives at `./data/cursor.state.json` (written atomically).
+   - Runtime uses only the `Cookie` header derived from this file.
+   - Uploaded session artifacts are encrypted with `SESSION_ENCRYPTION_KEY` and stored under `./data/diagnostics/` for troubleshooting only.
+   - Validation hits `https://cursor.com/api/usage-summary` and requires `membershipType`, `billingCycleStart`, `billingCycleEnd` in the JSON body.
 
 5. **Start development servers**
 

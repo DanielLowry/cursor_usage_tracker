@@ -4,7 +4,7 @@
 import prisma from '../../../../packages/db/src/client';
 import { trimRawBlobs } from '../../../../packages/db/src/retention';
 // Cursor authentication state management
-import { CursorAuthManager } from '../../../../packages/shared/cursor-auth/src';
+import { CursorAuthManager, getAuthHeaders } from '../../../../packages/shared/cursor-auth/src';
 // Env validation
 import { z } from 'zod';
 // gzip helper for storing compressed payloads
@@ -94,9 +94,8 @@ export async function runScrape(): Promise<ScrapeResult> {
 
   // Initialize Cursor auth manager and build cookie header
   const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
-  const state = await authManager.loadState();
-  const cookies = state?.sessionCookies || [];
-  const cookieHeader = buildCookieHeaderForUrl(cookies as any[], 'https://cursor.com/api/usage-summary');
+  const headers = await getAuthHeaders(env.CURSOR_AUTH_STATE_DIR);
+  const cookieHeader = headers['Cookie'] || null;
 
   // Pre-auth probe: usage-summary
   const usageRes = await fetchWithCursorCookies('https://cursor.com/api/usage-summary', cookieHeader);

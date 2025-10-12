@@ -36,14 +36,13 @@
     "db:generate": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma generate",
     "db:studio": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma studio",
 
-    "playwright:install": "pnpm --filter ./apps/worker exec playwright install chromium",
     "onboard": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/scripts/onboard.ts",
 
     "worker:dev": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/index.ts",
     "web:dev:lan": "dotenv -e .env.development.local -- pnpm --filter ./apps/web exec next dev -H 0.0.0.0 -p ${PORT:-3000}",
 
     "dev:all": "concurrently -n worker,web -c auto \"pnpm worker:dev\" \"pnpm web:dev:lan\"",
-    "setup:dev": "pnpm env:init && pnpm playwright:install && pnpm db:generate && pnpm db:migrate:dev && pnpm onboard",
+    "setup:dev": "pnpm env:init && pnpm db:generate && pnpm db:migrate:dev && pnpm onboard",
     "up": "pnpm services:start && wait-on tcp:127.0.0.1:5432 tcp:127.0.0.1:6379 && pnpm dev:all",
 
     "scrape:once": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/workers/scrape.ts"

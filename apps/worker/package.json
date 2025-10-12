@@ -22,7 +22,6 @@
     "@cursor-usage/types": "workspace:*",
     "@cursor-usage/redis": "workspace:*",
     "bullmq": "^5.1.0",
-    "playwright": "^1.42.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {

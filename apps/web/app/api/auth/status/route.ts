@@ -5,8 +5,7 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 
 import { z } from 'zod';
-import { sessionStore } from '../../../../lib/utils/file-session-store';
-import { detectAuthFromSession, runHttpLiveCheck } from './helpers';
+import { validateRawCookies, readRawCookies } from '../../../../../../packages/shared/cursor-auth/src';
 
 /**
  * Auth Status Route (Orchestrator)
@@ -43,62 +42,33 @@ export async function GET() {
     const env = parsed.data;
     console.log('Environment validated successfully');
 
-    // No stored-state fast-path; always run live probe
-
-    // First, check the session file
-    const mostRecentSession = sessionStore.readSessionFile();
-    //console.log('Most Recent Session:', mostRecentSession);
-
-    const sessionKeys = Object.keys(mostRecentSession?.data || {});
-    console.log("Session data keys", sessionKeys);
-
-    // Run heuristic detector on the session file so we can log exactly what's present
-    const sessionDetection = detectAuthFromSession(mostRecentSession?.data);
-    console.log('Session detection summary:', JSON.stringify(sessionDetection, null, 2));
-
-    if (mostRecentSession) {
-      console.log('Raw Session File Contents (Redacted):', JSON.stringify({
-        filename: mostRecentSession.filename,
-        createdAt: mostRecentSession.data.createdAt,
-        // Redact sensitive fields, show only structure
-        keys: Object.keys(mostRecentSession.data),
-        hasAuthData: sessionDetection.hasAuthData,
-        hasTokens: sessionDetection.hasTokens,
-        detectionMatches: sessionDetection.matched
-      }, null, 2));
-    } else {
-      console.log('No session file found');
-    }
-
-    // Always perform live authentication check via usage-summary
-    console.log('Attempting live authentication check via runHttpLiveCheck');
-
-    const liveResult = await runHttpLiveCheck(mostRecentSession?.data);
-    console.log('Live result summary:', JSON.stringify(liveResult, null, 2));
+    // Read canonical cookie state and validate directly via shared helper
+    const cookies = await readRawCookies(env.CURSOR_AUTH_STATE_DIR);
+    const apiProof = await validateRawCookies(cookies);
 
     const responseBody = {
-      isAuthenticated: liveResult.isAuthenticated,
+      isAuthenticated: apiProof.ok,
       lastChecked: new Date().toISOString(),
       source: 'live_check' as const,
-      sessionDetection: liveResult.sessionDetection ?? sessionDetection,
-      sessionFile: mostRecentSession?.filename ?? null,
+      sessionDetection: null,
+      sessionFile: null,
       verification: {
-        status: liveResult.status ?? null,
-        reason: liveResult.reason ?? null,
-        hasUser: liveResult.hasUser ?? false,
-        keys: (liveResult as any).keys ?? [],
-        contentType: (liveResult as any).contentType ?? null
+        status: apiProof.status ?? null,
+        reason: apiProof.reason ?? null,
+        hasUser: apiProof.ok,
+        keys: (apiProof as any).keys ?? [],
+        contentType: (apiProof as any).contentType ?? null
       },
-      usageSummary: (liveResult as any).usageSummary ?? null
+      usageSummary: (apiProof as any).usageSummary ?? null
     };
 
-    const httpStatus = liveResult.isAuthenticated
+    const httpStatus = apiProof.ok
       ? 200
-      : (liveResult.status === 401 || liveResult.status === 403 ? (liveResult.status as number) : 401);
+      : (apiProof.status === 401 || apiProof.status === 403 ? (apiProof.status as number) : 401);
 
-    const responseWithError = liveResult.isAuthenticated
+    const responseWithError = apiProof.ok
       ? responseBody
-      : { ...responseBody, error: liveResult.reason || 'Cannot access usage data - not authenticated' };
+      : { ...responseBody, error: apiProof.reason || 'Cannot access usage data - not authenticated' };
 
     return NextResponse.json(responseWithError, { status: httpStatus });
   } catch (error) {
