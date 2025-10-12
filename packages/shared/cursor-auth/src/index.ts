@@ -94,11 +94,13 @@ export class CursorAuthManager {
       
       // Validate state before saving
       const validatedState = CursorAuthStateSchema.parse(state);
-      
-      await fs.promises.writeFile(
-        this.statePath, 
-        JSON.stringify(validatedState, null, 2)
-      );
+      // Atomic write: write to a temp file then rename
+      const tempPath = this.statePath + `.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const payload = JSON.stringify(validatedState, null, 2);
+      console.log('cursor-auth: saveState writing temp file:', tempPath);
+      await fs.promises.writeFile(tempPath, payload, { encoding: 'utf8', mode: 0o600 });
+      await fs.promises.rename(tempPath, this.statePath);
+      console.log('cursor-auth: saveState replaced state file:', this.statePath);
     } catch (error) {
       console.error('Failed to save cursor auth state:', error);
       throw error;
@@ -206,13 +208,9 @@ export class CursorAuthManager {
    * Get state file path
    */
   getStatePath(): string {
-    try {
-      const dir = pathModule.dirname(this.statePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-    } catch (e) {
-      // best-effort; callers also ensure directory
+    const dir = pathModule.dirname(this.statePath);
+    if (!fs.existsSync(dir)) {
+      try { fs.mkdirSync(dir, { recursive: true }); } catch {}
     }
     return this.statePath;
   }
@@ -325,19 +323,14 @@ export function buildCookieHeader(cookies: RawCookie[] | undefined): string | nu
  *   ok=true when HTTP 200 and JSON contains membershipType, billingCycleStart, billingCycleEnd.
  */
 export async function validateRawCookies(cookies: RawCookie[]) {
-  const enableDebug = process.env.DEBUG_AUTH === '1';
-  if (enableDebug) {
-    console.log('cursor-auth: validateRawCookies starting with', cookies.length, 'cookies');
-  }
+  console.log('cursor-auth: validateRawCookies starting with', cookies.length, 'cookies');
 
   try {
     const cookieHeader = buildCookieHeader(cookies);
     const headers: Record<string, string> = { Accept: '*/*' };
     if (cookieHeader) headers['Cookie'] = cookieHeader;
 
-    if (enableDebug) {
-      console.log('cursor-auth: validateRawCookies fetching https://cursor.com/api/usage-summary');
-    }
+    console.log('cursor-auth: validateRawCookies fetching https://cursor.com/api/usage-summary');
 
     const res = await fetch('https://cursor.com/api/usage-summary', { method: 'GET', headers });
     const status = res.status;
@@ -350,11 +343,9 @@ export async function validateRawCookies(cookies: RawCookie[]) {
       try { textSample = (await res.text()).slice(0, 200); } catch {}
     }
 
-    if (enableDebug) {
-      console.log('cursor-auth: validateRawCookies status:', status, 'contentType:', contentType);
-      console.log('cursor-auth: validateRawCookies keys:', json ? Object.keys(json) : 'no json');
-      if (textSample) console.log('cursor-auth: validateRawCookies text sample:', textSample);
-    }
+    console.log('cursor-auth: validateRawCookies status:', status, 'contentType:', contentType);
+    console.log('cursor-auth: validateRawCookies keys:', json ? Object.keys(json) : 'no json');
+    if (textSample) console.log('cursor-auth: validateRawCookies text sample:', textSample);
 
     const isHtml = /text\/html/.test(contentType) || /<html|<body|<!doctype/i.test(textSample);
     if (isHtml) return { ok: false, status, reason: 'html_response', keys: [], contentType };
@@ -374,14 +365,10 @@ export async function validateRawCookies(cookies: RawCookie[]) {
       billingCycleStart: (json as any).billingCycleStart,
       billingCycleEnd: (json as any).billingCycleEnd,
     };
-    if (enableDebug) {
-      console.log('cursor-auth: validateRawCookies success, hasRequired:', hasRequired);
-    }
+    console.log('cursor-auth: validateRawCookies success, hasRequired:', hasRequired);
     return { ok: true, status, reason: 'api_ok', keys, contentType, usageSummary };
   } catch (e) {
-    if (enableDebug) {
-      console.log('cursor-auth: validateRawCookies fetch error:', e instanceof Error ? e.message : String(e));
-    }
+    console.log('cursor-auth: validateRawCookies fetch error:', e instanceof Error ? e.message : String(e));
     return { ok: false, status: 0, reason: `fetch_error:${e instanceof Error ? e.message : String(e)}`, keys: [], contentType: '' };
   }
 }
@@ -399,28 +386,21 @@ export async function validateRawCookies(cookies: RawCookie[]) {
  * - Promise<Array<RawCookie>> possibly empty if state file missing or invalid.
  */
 export async function readRawCookies(stateDir: string = './data'): Promise<RawCookie[]> {
-  const enableDebug = process.env.DEBUG_AUTH === '1';
-  if (enableDebug) {
-    const resolvedDir = pathModule.resolve(stateDir);
-    console.log('cursor-auth: readRawCookies resolved dir:', resolvedDir);
-    const fullPath = pathModule.join(resolvedDir, 'cursor.state.json');
-    console.log('cursor-auth: readRawCookies full path:', fullPath);
-    const exists = fs.existsSync(fullPath);
-    console.log('cursor-auth: readRawCookies file exists:', exists);
-  }
+  const resolvedDir = pathModule.resolve(stateDir);
+  console.log('cursor-auth: readRawCookies resolved dir:', resolvedDir);
+  const fullPath = pathModule.join(resolvedDir, 'cursor.state.json');
+  console.log('cursor-auth: readRawCookies full path:', fullPath);
+  const exists = fs.existsSync(fullPath);
+  console.log('cursor-auth: readRawCookies file exists:', exists);
 
   try {
     const manager = new CursorAuthManager(stateDir);
     const state = await manager.loadState();
     const cookies = (state && state.sessionCookies) || [];
-    if (enableDebug) {
-      console.log('cursor-auth: readRawCookies cookie count:', cookies.length);
-    }
+    console.log('cursor-auth: readRawCookies cookie count:', cookies.length);
     return cookies;
   } catch (e) {
-    if (enableDebug) {
-      console.log('cursor-auth: readRawCookies failed:', (e as any).message ?? String(e));
-    }
+    console.log('cursor-auth: readRawCookies failed:', (e as any).message ?? String(e));
     return [];
   }
 }
@@ -440,25 +420,9 @@ export async function readRawCookies(stateDir: string = './data'): Promise<RawCo
  * - Promise<void> (throws on failure).
  */
 export async function writeRawCookiesAtomic(cookies: RawCookie[], stateDir: string = './data'): Promise<void> {
-  try {
-    const manager = new CursorAuthManager(stateDir);
-    const dir = pathModule.dirname(manager.getStatePath());
-    await fs.promises.mkdir(dir, { recursive: true });
-
-    const tempPath = manager.getStatePath() + `.tmp-${crypto.randomBytes(8).toString('hex')}`;
-    const stateToWrite = {
-      isAuthenticated: true,
-      lastChecked: new Date().toISOString(),
-      sessionCookies: cookies,
-      lastLogin: new Date().toISOString(),
-      source: 'live_check'
-    } as any;
-
-    await fs.promises.writeFile(tempPath, JSON.stringify(stateToWrite, null, 2), { encoding: 'utf8', mode: 0o600 });
-    await fs.promises.rename(tempPath, manager.getStatePath());
-  } catch (e) {
-    throw e;
-  }
+  const manager = new CursorAuthManager(stateDir);
+  console.log('cursor-auth: writeRawCookiesAtomic delegating to saveSessionCookiesRaw');
+  await manager.saveSessionCookiesRaw(cookies);
 }
 
 /**
@@ -475,37 +439,47 @@ export async function writeRawCookiesAtomic(cookies: RawCookie[], stateDir: stri
  * Outputs:
  * - Promise<string>: filename of the saved encrypted artifact.
  */
+export function encryptSessionData(session: SessionData) {
+  const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
+  if (!ENCRYPTION_KEY) throw new Error('SESSION_ENCRYPTION_KEY not set');
+  const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
+  if (keyBuffer.length !== 32) throw new Error('SESSION_ENCRYPTION_KEY must be 32 bytes (hex-encoded)');
+  const dataToEncrypt = JSON.stringify(session);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', crypto.createSecretKey(keyBuffer), iv);
+  const encrypted = Buffer.concat([cipher.update(dataToEncrypt, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return {
+    ciphertext: encrypted.toString('base64'),
+    iv: iv.toString('base64'),
+    tag: authTag.toString('base64'),
+    createdAt: new Date().toISOString(),
+    isEncrypted: true as const,
+  };
+}
+
+export function decryptSessionData(encryptedData: { ciphertext: string; iv: string; tag: string }) {
+  const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
+  if (!ENCRYPTION_KEY) throw new Error('SESSION_ENCRYPTION_KEY not set');
+  const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
+  if (keyBuffer.length !== 32) throw new Error('SESSION_ENCRYPTION_KEY must be 32 bytes (hex-encoded)');
+  const iv = Buffer.from(encryptedData.iv, 'base64');
+  const encrypted = Buffer.from(encryptedData.ciphertext, 'base64');
+  const authTag = Buffer.from(encryptedData.tag, 'base64');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', crypto.createSecretKey(keyBuffer), iv);
+  decipher.setAuthTag(authTag);
+  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return JSON.parse(decrypted.toString('utf8'));
+}
+
 export async function persistEncryptedSessionData(session: SessionData, stateDir: string = './data'): Promise<string> {
-  try {
-    const dir = pathModule.join(stateDir, 'diagnostics');
-    await fs.promises.mkdir(dir, { recursive: true });
-
-    const ENCRYPTION_KEY = process.env.SESSION_ENCRYPTION_KEY;
-    if (!ENCRYPTION_KEY) throw new Error('SESSION_ENCRYPTION_KEY not set');
-    const keyBuffer = Buffer.from(ENCRYPTION_KEY, 'hex');
-    if (keyBuffer.length !== 32) throw new Error('SESSION_ENCRYPTION_KEY must be 32 bytes (hex-encoded)');
-
-    const dataToEncrypt = JSON.stringify(session);
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', crypto.createSecretKey(keyBuffer), iv);
-    const encrypted = Buffer.concat([cipher.update(dataToEncrypt, 'utf8'), cipher.final()]);
-    const authTag = cipher.getAuthTag();
-
-    const payload = {
-      ciphertext: encrypted.toString('base64'),
-      iv: iv.toString('base64'),
-      tag: authTag.toString('base64'),
-      createdAt: new Date().toISOString(),
-      isEncrypted: true
-    };
-
-    const filename = `session_diag_${Date.now()}.json`;
-    const filePath = pathModule.join(dir, filename);
-    await fs.promises.writeFile(filePath, JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 });
-    return filename;
-  } catch (e) {
-    throw e;
-  }
+  const dir = pathModule.join(stateDir, 'diagnostics');
+  await fs.promises.mkdir(dir, { recursive: true });
+  const payload = encryptSessionData(session);
+  const filename = `session_diag_${Date.now()}.json`;
+  const filePath = pathModule.join(dir, filename);
+  await fs.promises.writeFile(filePath, JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 });
+  return filename;
 }
 
 /**
@@ -522,22 +496,15 @@ export async function persistEncryptedSessionData(session: SessionData, stateDir
  * - Promise<Record<string,string>> suitable for fetch() `headers`.
  */
 export async function getAuthHeaders(stateDir: string = './data'): Promise<Record<string, string>> {
-  const enableDebug = process.env.DEBUG_AUTH === '1';
   try {
     const cookies = await readRawCookies(stateDir);
     const header = buildCookieHeader(cookies);
     const result = (header ? { Cookie: header } : {}) as Record<string, string>;
-    if (enableDebug) {
-      console.log('cursor-auth: getAuthHeaders length:', header ? header.length : 0);
-      if (header) {
-        console.log('cursor-auth: getAuthHeaders preview:', header.substring(0, 50) + '...');
-      }
-    }
+    console.log('cursor-auth: getAuthHeaders length:', header ? header.length : 0);
+    if (header) console.log('cursor-auth: getAuthHeaders preview:', header.substring(0, 50) + '...');
     return result;
   } catch (e) {
-    if (enableDebug) {
-      console.log('cursor-auth: getAuthHeaders failed:', (e as any).message ?? String(e));
-    }
+    console.log('cursor-auth: getAuthHeaders failed:', (e as any).message ?? String(e));
     return {} as Record<string, string>;
   }
 }
