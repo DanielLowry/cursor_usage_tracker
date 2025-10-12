@@ -1,6 +1,6 @@
 // Relative path: packages/shared/cursor-auth/src/index.ts
 
-import * as fs from 'fs/promises';
+import * as fs from 'fs';
 import * as pathModule from 'path';
 import { z } from 'zod';
 import * as crypto from 'crypto';
@@ -50,16 +50,35 @@ export class CursorAuthManager {
    * Load the current authentication state
    */
   async loadState(): Promise<CursorAuthState | null> {
+    const enableDebug = process.env.DEBUG_AUTH === '1';
     try {
-      if (!fs.existsSync(this.statePath)) {
+      const resolvedDir = pathModule.resolve(pathModule.dirname(this.statePath));
+      const fullPath = this.statePath;
+      if (enableDebug) {
+        console.log('cursor-auth: loadState resolvedDir=', resolvedDir);
+        console.log('cursor-auth: loadState fullPath=', fullPath);
+      }
+
+      if (!fs.existsSync(fullPath)) {
+        if (enableDebug) console.log('cursor-auth: loadState file does not exist');
         return null;
       }
-      
-      const content = await fs.promises.readFile(this.statePath, 'utf-8');
+
+      const content = await fs.promises.readFile(fullPath, 'utf-8');
+      if (enableDebug) {
+        try {
+          const stat = fs.statSync(fullPath);
+          console.log('cursor-auth: loadState fileSize=', stat.size, 'modified=', stat.mtime.toISOString());
+        } catch (e) {}
+      }
       const parsed = JSON.parse(content);
-      return CursorAuthStateSchema.parse(parsed);
+      const state = CursorAuthStateSchema.parse(parsed);
+      if (enableDebug) {
+        console.log('cursor-auth: loadState parsed sessionCookies count=', (state.sessionCookies || []).length);
+      }
+      return state;
     } catch (error) {
-      console.warn('Failed to load cursor auth state:', error);
+      if (process.env.DEBUG_AUTH === '1') console.warn('cursor-auth: Failed to load cursor auth state:', error);
       return null;
     }
   }
@@ -386,7 +405,7 @@ export async function readRawCookies(stateDir: string = './data'): Promise<RawCo
     console.log('cursor-auth: readRawCookies resolved dir:', resolvedDir);
     const fullPath = pathModule.join(resolvedDir, 'cursor.state.json');
     console.log('cursor-auth: readRawCookies full path:', fullPath);
-    const exists = await fs.access(fullPath).then(() => true).catch(() => false);
+    const exists = fs.existsSync(fullPath);
     console.log('cursor-auth: readRawCookies file exists:', exists);
   }
 
@@ -400,7 +419,7 @@ export async function readRawCookies(stateDir: string = './data'): Promise<RawCo
     return cookies;
   } catch (e) {
     if (enableDebug) {
-      console.log('cursor-auth: readRawCookies failed:', e.message);
+      console.log('cursor-auth: readRawCookies failed:', (e as any).message ?? String(e));
     }
     return [];
   }
@@ -507,7 +526,7 @@ export async function getAuthHeaders(stateDir: string = './data'): Promise<Recor
   try {
     const cookies = await readRawCookies(stateDir);
     const header = buildCookieHeader(cookies);
-    const result = header ? { Cookie: header } : {};
+    const result = (header ? { Cookie: header } : {}) as Record<string, string>;
     if (enableDebug) {
       console.log('cursor-auth: getAuthHeaders length:', header ? header.length : 0);
       if (header) {
@@ -517,9 +536,9 @@ export async function getAuthHeaders(stateDir: string = './data'): Promise<Recor
     return result;
   } catch (e) {
     if (enableDebug) {
-      console.log('cursor-auth: getAuthHeaders failed:', e.message);
+      console.log('cursor-auth: getAuthHeaders failed:', (e as any).message ?? String(e));
     }
-    return {};
+    return {} as Record<string, string>;
   }
 }
 
