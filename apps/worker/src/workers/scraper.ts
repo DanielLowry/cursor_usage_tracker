@@ -63,11 +63,20 @@ export async function runScrape(): Promise<ScrapeResult> {
   console.log('runScrape: env', { CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
   // Resolve canonical state path. Worker default './data' may be relative to apps/worker;
   // prefer repo-level web data folder when worker-local file is missing.
+  // Strategy:
+  // 1) If the configured CURSOR_AUTH_STATE_DIR contains a cursor.state.json file, use it.
+  // 2) Otherwise, walk up from the current cwd to find the repo root (using pnpm-workspace.yaml, turbo.json, or .git)
+  //    and check `apps/web/data/cursor.state.json` there.
+  // 3) If neither exists, fall back to the configured directory (may cause validation to fail later).
   const requestedStateDir = env.CURSOR_AUTH_STATE_DIR || './data';
-  const resolvedRequested = path.resolve(requestedStateDir);
-  const requestedStatePath = path.join(resolvedRequested, 'cursor.state.json');
+  const requestedStatePath = path.join(path.resolve(requestedStateDir), 'cursor.state.json');
   let chosenStateDir = requestedStateDir;
-  if (!fs.existsSync(requestedStatePath)) {
+
+  if (fs.existsSync(requestedStatePath)) {
+    // configured path already contains state file
+    chosenStateDir = path.resolve(requestedStateDir);
+    console.log('runScrape: using configured auth state dir:', chosenStateDir);
+  } else {
     // try repo web data path — robustly find repo root by walking up from current cwd
     // Look for a repo-level marker (pnpm-workspace.yaml, turbo.json, or .git)
     let repoRoot = process.cwd();
