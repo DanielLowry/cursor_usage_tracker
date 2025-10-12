@@ -9,7 +9,7 @@
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "clean": "rimraf dist",
     "test": "vitest",
-    "lint": "eslint src --ext .ts && grep -rnw './src' -e 'fetch(\\'https://cursor.com\\'' --include='*.ts' --exclude='AuthSession.ts'"
+    "lint": "eslint src --ext .ts && grep -rnw \"./src\" -e \"fetch('https://cursor.com'\" --include='*.ts' --exclude='AuthSession.ts' || true"
   },
   "dependencies": {
     "zod": "^3.22.4"

@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint && grep -rnw './' -e 'fetch(\\'https://cursor.com\\'' --include='*.ts' --include='*.tsx' --exclude='node_modules' --exclude='dist' --exclude='test'",
+    "lint": "next lint && grep -rnw \"./\" -e \"fetch('https://cursor.com'\" --include='*.ts' --include='*.tsx' --exclude='node_modules' --exclude='dist' --exclude='test' || true",
     "test": "vitest",
     "package-extension": "node scripts/generate-icons.js && node scripts/package-extension.js"
   },

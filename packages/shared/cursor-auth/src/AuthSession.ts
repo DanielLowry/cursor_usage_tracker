@@ -109,8 +109,8 @@ export async function validateRawCookies(cookies: RawCookie[]) {
     let textSample = '';
     try {
       json = await res.json();
-    } catch {
-      try { textSample = (await res.text()).slice(0, 200); } catch {}
+    } catch (e) {
+      try { textSample = (await res.text()).slice(0, 200); } catch (innerErr) { if (process.env.DEBUG_AUTH === '1') console.warn('cursor-auth: reading response text failed', innerErr); }
     }
 
     console.log('cursor-auth: validateRawCookies status:', status, 'contentType:', contentType);
@@ -170,7 +170,7 @@ export class AuthSession {
         try {
           const stat = fs.statSync(fullPath);
           console.log('cursor-auth: loadState fileSize=', stat.size, 'modified=', stat.mtime.toISOString());
-        } catch (e) {}
+        } catch (e) { console.warn('cursor-auth: loadState stat failed', e); }
       }
       const parsed = JSON.parse(content);
       const state = CursorAuthStateSchema.parse(parsed);
