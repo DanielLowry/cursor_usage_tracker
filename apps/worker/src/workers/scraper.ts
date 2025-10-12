@@ -11,6 +11,8 @@ import { z } from 'zod';
 import * as zlib from 'zlib';
 // URL utilities
 import * as url from 'url';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Expected environment variables and basic validation/transforms
 const envSchema = z.object({
@@ -59,9 +61,32 @@ export async function runScrape(): Promise<ScrapeResult> {
   const env = parsed.data as { CURSOR_AUTH_STATE_DIR: string; RAW_BLOB_KEEP_N: number };
   console.log('runScrape: env', { CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
 
+  // Temporary debugging logs for path resolution
+  const resolvedStateDir = path.resolve(env.CURSOR_AUTH_STATE_DIR);
+  console.log('runScrape: resolved state dir:', resolvedStateDir);
+  const fullStatePath = path.join(resolvedStateDir, 'cursor.state.json');
+  console.log('runScrape: full state path:', fullStatePath);
+  const stateFileExists = fs.existsSync(fullStatePath);
+  console.log('runScrape: state file exists:', stateFileExists);
+  let cookieCount = 0;
+  if (stateFileExists) {
+    try {
+      const stateContent = fs.readFileSync(fullStatePath, 'utf8');
+      const stateJson = JSON.parse(stateContent);
+      cookieCount = stateJson.sessionCookies?.length || 0;
+      console.log('runScrape: state cookies count:', cookieCount);
+    } catch (e) {
+      console.log('runScrape: failed to parse state file:', e.message);
+    }
+  }
+
   // Build cookie header from shared canonical state
   const headers = await getAuthHeaders(env.CURSOR_AUTH_STATE_DIR);
   const cookieHeader = headers['Cookie'] || null;
+  console.log('runScrape: cookieHeader length:', cookieHeader ? cookieHeader.length : 0);
+  if (cookieHeader) {
+    console.log('runScrape: cookieHeader preview:', cookieHeader.substring(0, 50) + '...'); // Redacted preview
+  }
 
   // Pre-auth probe: usage-summary
   const usageRes = await fetchWithCursorCookies('https://cursor.com/api/usage-summary', cookieHeader);
