@@ -1,0 +1,17 @@
+{
+  "isAuthenticated": true,
+  "lastChecked": "2025-01-01T00:00:00.000Z",
+  "sessionCookies": [
+    {
+      "name": "valid_cookie",
+      "value": "valid_value",
+      "domain": "cursor.com",
+      "path": "/",
+      "expires": 2000000000,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    }
+  ],
+  "source": "stored_state"
+}

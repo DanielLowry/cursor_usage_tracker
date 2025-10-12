@@ -1,0 +1,14 @@
+{
+  "isAuthenticated": true,
+  "lastChecked": "2025-01-01T00:00:00.000Z",
+  "sessionCookies": [
+    {
+      "name": "expired_cookie",
+      "value": "expired_value",
+      "domain": "cursor.com",
+      "path": "/",
+      "expires": 1000000000, "// 2001-09-09T01:46:40Z"
+    }
+  ],
+  "source": "stored_state"
+}

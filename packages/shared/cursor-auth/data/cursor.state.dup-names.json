@@ -1,0 +1,21 @@
+{
+  "isAuthenticated": true,
+  "lastChecked": "2025-01-01T00:00:00.000Z",
+  "sessionCookies": [
+    {
+      "name": "duplicate_cookie",
+      "value": "first_value",
+      "domain": "cursor.com",
+      "path": "/",
+      "expires": 2000000000
+    },
+    {
+      "name": "duplicate_cookie",
+      "value": "second_value",
+      "domain": "cursor.com",
+      "path": "/",
+      "expires": 2000000000
+    }
+  ],
+  "source": "stored_state"
+}

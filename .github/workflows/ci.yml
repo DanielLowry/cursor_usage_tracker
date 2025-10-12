@@ -127,7 +127,14 @@ jobs:
       #   run: pnpm typecheck
     
 
-      - name: Test
-        run: pnpm test
+      - name: Test Auth Shared Package
+        run: pnpm --filter @cursor-usage/cursor-auth test
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
+          # Required for undici to mock fetch correctly in tests
+          NODE_OPTIONS: --experimental-fetch
+
+      - name: Test Web App
+        run: pnpm --filter @cursor-usage/web test
+        env:
+          # Required for undici to mock fetch correctly in tests
+          NODE_OPTIONS: --experimental-fetch

@@ -1,7 +1,7 @@
 // Relative path: apps/web/app/api/auth/upload-session/route.ts
 
 import { NextResponse } from 'next/server';
-import { sessionStore } from '../../../../lib/utils/file-session-store';
+// import { sessionStore } from '../../../../lib/utils/file-session-store'; // Removed as per plan
 import { persistEncryptedSessionData, deriveRawCookiesFromSessionData, validateRawCookies, writeRawCookiesAtomic } from '../../../../../../packages/shared/cursor-auth/src';
 import fs from 'fs';
 import path from 'path';
@@ -40,14 +40,11 @@ export async function POST(request: Request) {
       });
     }
 
-    // Save the session to filesystem with encryption
-    const sessionFilename = sessionStore.save(sessionData);
-
-    // Persist encrypted diagnostics-only copy in shared package
-    try { await persistEncryptedSessionData(sessionData); } catch (e) { console.warn('persistEncryptedSessionData failed:', e); }
+    // Save the session to filesystem with encryption for diagnostics
+    const sessionFilename = await persistEncryptedSessionData(sessionData);
 
     // Derive raw cookies and validate against usage-summary before writing canonical state
-    const derived = deriveRawCookiesFromSessionData(sessionData as any);
+    const derived = deriveRawCookiesFromSessionData(sessionData);
     let verification: any = { ok: false, status: null, hasUser: false, reason: 'not_run' };
     try {
       const apiProof = await validateRawCookies(derived);

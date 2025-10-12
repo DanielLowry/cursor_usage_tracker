@@ -5,6 +5,7 @@ import prisma from '../../../../packages/db/src/client';
 import { trimRawBlobs } from '../../../../packages/db/src/retention';
 // Cursor authentication state management
 import { getAuthHeaders } from '../../../../packages/shared/cursor-auth/src';
+import { AuthSession, CursorAuthState } from '../../../../packages/shared/cursor-auth/src/AuthSession';
 // Env validation
 import { z } from 'zod';
 // gzip helper for storing compressed payloads
@@ -48,11 +49,8 @@ function gzipBuffer(input: Buffer): Promise<Buffer> {
 }
 
 
-async function fetchWithCursorCookies(targetUrl: string, cookieHeader: string | null) {
-  const headers: Record<string, string> = {
-    'Accept': '*/*',
-  };
-  if (cookieHeader) headers['Cookie'] = cookieHeader;
+async function fetchWithCursorCookies(authSession: AuthSession, targetUrl: string) {
+  const headers = await authSession.toHttpHeaders(targetUrl);
   const res = await fetch(targetUrl, { method: 'GET', headers });
   return res;
 }
@@ -114,13 +112,18 @@ export async function runScrape(): Promise<ScrapeResult> {
     }
   }
 
-  // Build cookie header from shared canonical state
+  // Build cookie header from shared canonical state (this will emit readRawCookies + getAuthHeaders logs)
   const headers = await getAuthHeaders(chosenStateDir);
   const cookieHeader = headers['Cookie'] || null;
 
+  // Also log the preview hash for parity with previous behavior
+  const authSession = new AuthSession(chosenStateDir);
+  const { hash } = await authSession.preview();
+  console.log('runScrape: auth session hash:', hash);
+
 
   // Pre-auth probe: usage-summary
-  const usageRes = await fetchWithCursorCookies('https://cursor.com/api/usage-summary', cookieHeader);
+  const usageRes = await fetchWithCursorCookies(authSession, 'https://cursor.com/api/usage-summary');
   const usageContentType = (usageRes.headers.get('content-type') || '').toLowerCase();
   let usageJson: any = null;
   try { usageJson = await usageRes.json(); } catch { /* ignore */ }
@@ -133,7 +136,7 @@ export async function runScrape(): Promise<ScrapeResult> {
   }
 
   // Fetch CSV export directly using same Cookie header
-  const csvRes = await fetchWithCursorCookies('https://cursor.com/api/dashboard/export-usage-events-csv', cookieHeader);
+  const csvRes = await fetchWithCursorCookies(authSession, 'https://cursor.com/api/dashboard/export-usage-events-csv');
   const csvStatus = csvRes.status;
   if (csvStatus !== 200) {
     throw new Error(`csv fetch failed: status=${csvStatus}`);

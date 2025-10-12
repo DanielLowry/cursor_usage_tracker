@@ -1,0 +1,14 @@
+{
+  "isAuthenticated": true,
+  "lastChecked": "2025-01-01T00:00:00.000Z",
+  "sessionCookies": [
+    {
+      "name": "bad_domain_cookie",
+      "value": "bad_domain_value",
+      "domain": "evil.com",
+      "path": "/",
+      "expires": 2000000000
+    }
+  ],
+  "source": "stored_state"
+}
