@@ -11,6 +11,8 @@ import { z } from 'zod';
 import * as zlib from 'zlib';
 // URL utilities
 import * as url from 'url';
+import * as fs from 'fs';
+import * as path from 'path';
 
 
 // Expected environment variables and basic validation/transforms
@@ -59,9 +61,38 @@ export async function runScrape(): Promise<ScrapeResult> {
   }
   const env = parsed.data as { CURSOR_AUTH_STATE_DIR: string; RAW_BLOB_KEEP_N: number };
   console.log('runScrape: env', { CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
+  // Resolve canonical state path. Worker default './data' may be relative to apps/worker;
+  // prefer repo-level web data folder when worker-local file is missing.
+  const requestedStateDir = env.CURSOR_AUTH_STATE_DIR || './data';
+  const resolvedRequested = path.resolve(requestedStateDir);
+  const requestedStatePath = path.join(resolvedRequested, 'cursor.state.json');
+  let chosenStateDir = requestedStateDir;
+  if (!fs.existsSync(requestedStatePath)) {
+    // try repo web data path — robustly find repo root by walking up from current cwd
+    // Look for a repo-level marker (pnpm-workspace.yaml, turbo.json, or .git)
+    let repoRoot = process.cwd();
+    while (true) {
+      const marker1 = path.join(repoRoot, 'pnpm-workspace.yaml');
+      const marker2 = path.join(repoRoot, 'turbo.json');
+      const marker3 = path.join(repoRoot, '.git');
+      if (fs.existsSync(marker1) || fs.existsSync(marker2) || fs.existsSync(marker3)) break;
+      const parent = path.dirname(repoRoot);
+      if (parent === repoRoot) { repoRoot = process.cwd(); break; }
+      repoRoot = parent;
+    }
+    const alt = path.join(repoRoot, 'apps', 'web', 'data');
+    const altStatePath = path.join(alt, 'cursor.state.json');
+    if (fs.existsSync(altStatePath)) {
+      console.log('runScrape: using alternative auth state dir (repo-root):', alt);
+      chosenStateDir = alt;
+    } else {
+      console.log('runScrape: no cursor.state.json found at', requestedStatePath, 'or', altStatePath);
+      chosenStateDir = requestedStateDir; // keep original, let validation fail
+    }
+  }
 
   // Build cookie header from shared canonical state
-  const headers = await getAuthHeaders(env.CURSOR_AUTH_STATE_DIR);
+  const headers = await getAuthHeaders(chosenStateDir);
   const cookieHeader = headers['Cookie'] || null;
 
   // Pre-auth probe: usage-summary
