@@ -121,20 +121,9 @@ jobs:
           REDIS_URL: "redis://localhost:6379"
           AUTH_SECRET: "test-secret"
 
-      - run: pnpm lint
+      - run: pnpm lint   
 
-      # - name: Typecheck
-      #   run: pnpm typecheck
-    
-
-      - name: Test Auth Shared Package
-        run: pnpm --filter @cursor-usage/cursor-auth test
+      - name: Test
+        run: pnpm test
         env:
-          # Required for undici to mock fetch correctly in tests
-          NODE_OPTIONS: --experimental-fetch
-
-      - name: Test Web App
-        run: pnpm --filter @cursor-usage/web test
-        env:
-          # Required for undici to mock fetch correctly in tests
-          NODE_OPTIONS: --experimental-fetch
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
