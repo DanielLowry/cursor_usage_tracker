@@ -52,8 +52,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter @cursor-usage/worker run install_playwright 
-
       - name: Prisma Generate
         run: pnpm --filter @cursor-usage/db run db:generate
 
