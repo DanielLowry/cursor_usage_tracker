@@ -8,17 +8,14 @@ import { z } from 'zod';
 import { validateRawCookies, readRawCookies } from '../../../../../../packages/shared/cursor-auth/src';
 
 /**
- * Auth Status Route (Orchestrator)
+ * Auth Status Route
  *
  * Responsibilities:
- * - Read the latest uploaded session artifact (decrypted by FileSessionStore)
- * - Hydrate Playwright context with previously saved cookies and any cookies present in the uploaded artifact
- * - Perform a live check against the Cursor dashboard
- * - On success: persist cookies and update the canonical auth state via CursorAuthManager
- * - On failure: update auth state with error context
+ * - Read canonical auth state from `cursor.state.json` (RawCookies only)
+ * - Validate cookies against https://cursor.com/api/usage-summary
+ * - Return current auth status and usage summary
  *
- * Note: Uploaded session artifacts are considered inputs. The distilled, minimal state
- * used by the rest of the app lives in `cursor.state.json` and is owned by CursorAuthManager.
+ * Note: Uses only the consolidated auth state managed by the shared cursor-auth package.
  */
 
 const envSchema = z.object({

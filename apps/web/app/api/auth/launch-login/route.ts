@@ -2,7 +2,6 @@
 
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { CursorAuthManager } from '../../../../../../packages/shared/cursor-auth/src';
 // login-helper-scripts are not needed in this route; GET redirects to Cursor
 
 const envSchema = z.object({

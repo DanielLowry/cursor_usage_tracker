@@ -4,7 +4,7 @@
 import prisma from '../../../../packages/db/src/client';
 import { trimRawBlobs } from '../../../../packages/db/src/retention';
 // Cursor authentication state management
-import { CursorAuthManager, getAuthHeaders } from '../../../../packages/shared/cursor-auth/src';
+import { getAuthHeaders } from '../../../../packages/shared/cursor-auth/src';
 // Env validation
 import { z } from 'zod';
 // gzip helper for storing compressed payloads
@@ -36,39 +36,6 @@ function gzipBuffer(input: Buffer): Promise<Buffer> {
 }
 
 
-// Build a Cookie header string for a given target URL from stored session cookies
-function buildCookieHeaderForUrl(cookies: any[] | undefined, targetUrl: string): string | null {
-  if (!cookies || cookies.length === 0) return null;
-  const { hostname, pathname, protocol } = new url.URL(targetUrl);
-  const isHttps = protocol === 'https:';
-
-  const now = Math.floor(Date.now() / 1000);
-  const matches: string[] = [];
-  for (const c of cookies) {
-    if (!c || !c.name) continue;
-    const name = String(c.name);
-    const value = String(c.value ?? '');
-    const domain = c.domain ? String(c.domain).replace(/^\./, '') : undefined;
-    const path = String(c.path || '/');
-    const expires = typeof c.expires === 'number' ? c.expires : undefined;
-    const secure = Boolean(c.secure);
-
-    // domain match: exact or suffix match for subdomains
-    const domainOk = !domain || hostname === domain || hostname.endsWith('.' + domain);
-    // path match: request path must start with cookie path
-    const pathOk = pathname.startsWith(path);
-    // expiry
-    const notExpired = !expires || expires === 0 || expires > now;
-    // secure
-    const secureOk = !secure || isHttps;
-
-    if (domainOk && pathOk && notExpired && secureOk) {
-      matches.push(`${name}=${value}`);
-    }
-  }
-  return matches.length > 0 ? matches.join('; ') : null;
-}
-
 async function fetchWithCursorCookies(targetUrl: string, cookieHeader: string | null) {
   const headers: Record<string, string> = {
     'Accept': '*/*',
@@ -92,8 +59,7 @@ export async function runScrape(): Promise<ScrapeResult> {
   const env = parsed.data as { CURSOR_AUTH_STATE_DIR: string; RAW_BLOB_KEEP_N: number };
   console.log('runScrape: env', { CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
 
-  // Initialize Cursor auth manager and build cookie header
-  const authManager = new CursorAuthManager(env.CURSOR_AUTH_STATE_DIR);
+  // Build cookie header from shared canonical state
   const headers = await getAuthHeaders(env.CURSOR_AUTH_STATE_DIR);
   const cookieHeader = headers['Cookie'] || null;
 
@@ -110,9 +76,8 @@ export async function runScrape(): Promise<ScrapeResult> {
     throw new Error(`auth probe failed: status=${usageStatus} ct=${usageContentType} keys=${usageKeys.join(',')}`);
   }
 
-  // Fetch CSV export directly
-  const csvCookieHeader = buildCookieHeaderForUrl(cookies as any[], 'https://cursor.com/api/dashboard/export-usage-events-csv');
-  const csvRes = await fetchWithCursorCookies('https://cursor.com/api/dashboard/export-usage-events-csv', csvCookieHeader);
+  // Fetch CSV export directly using same Cookie header
+  const csvRes = await fetchWithCursorCookies('https://cursor.com/api/dashboard/export-usage-events-csv', cookieHeader);
   const csvStatus = csvRes.status;
   if (csvStatus !== 200) {
     throw new Error(`csv fetch failed: status=${csvStatus}`);
