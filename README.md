@@ -149,7 +149,11 @@ pnpm clean
 
     Use Docker Desktop or install Postgres via the Windows installer. If using WSL, follow the Linux instructions inside the WSL distribution.
 
-   Note: the project includes a helper script `pnpm pg:start` which runs `pg_ctl -D ~/pgdata -l ~/pgdata/server.log start`. After installing Postgres, make sure a data directory exists at `~/pgdata` (for example via `initdb -D ~/pgdata`) so that `pnpm pg:start` can start the server.
+  Note: the project includes a helper script `pnpm pg:start` which runs `pg_ctl -D ~/pgdata -l ~/pgdata/server.log start`.
+
+  - On some installs (especially when installing from distribution packages), `initdb` and `pg_ctl` are provided by the PostgreSQL server package but are not added to your shell `PATH` automatically. If `initdb` is not found, run it by providing the full path (for example `/usr/lib/postgresql/15/bin/initdb`) or add the PostgreSQL binaries directory to your `PATH`.
+
+  - After installing Postgres, make sure a data directory exists at `~/pgdata` (for example via `initdb -D ~/pgdata`) so that `pnpm pg:start` can start the server.
 
    Redis is also required for queues and caching. A quick local instance can be started with Docker:
 
