@@ -27,7 +27,8 @@
     "env:init": "test -f .env.development.local || cp .env.example .env.development.local",
 
     "pg:start": "pg_ctl -D ~/pgdata -l ~/pgdata/server.log start -o '-k /tmp'",
-    "pg:ready": "psql -h /tmp -d cursor_usage_dev -c 'select 1'",
+    "pg:dev:create" : "createdb -h /tmp cursor_usage_dev",
+    "pg:dev:ready": "psql -h /tmp -d cursor_usage_dev -c 'select 1'",
 
     "redis:start": "redis-server",
     "redis:ping": "redis-cli ping",
