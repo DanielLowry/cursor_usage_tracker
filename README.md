@@ -17,7 +17,7 @@ If Node is not installed yet, or for step-by-step verification commands, see the
 - Linux (Ubuntu/Debian): [docs/INSTALL.linux.md](./docs/INSTALL.linux.md)
 
 ## Node version
-This repo includes an `.nvmrc` with `20`. Use your OS package manager plus `nvm`/`nvm-windows` to ensure Node 20.x. If you install a newer Node, switch to 20.x to match the toolchain.
+This repo includes an `.nvmrc` with `20`. Use your OS package manager plus `nvm`/`nvm-windows` to ensure Node 20.x. If you install a newer Node, switch to 20.x to match the toolchain.nvm
 
 ## Monorepo quickstart
 
@@ -120,6 +120,36 @@ pnpm clean
    pnpm db:logs    # follow container logs
    pnpm db:down    # stop and remove the container
    ```
+
+   Installing PostgreSQL (local options)
+
+   - **Docker (recommended for development)**
+
+     Use the repository's Docker Compose with `pnpm db:up` (preferred):
+
+     ```bash
+     pnpm db:up
+     ```
+
+     Or run a one-off Postgres container:
+
+     ```bash
+     docker run --rm -p 5432:5432 -v ~/pgdata:/var/lib/postgresql/data -e POSTGRES_PASSWORD=postgres postgres:15
+     ```
+
+   - **Ubuntu / Debian (apt)**
+
+     ```bash
+     sudo apt update && sudo apt install -y postgresql postgresql-contrib
+     # Initialize a local data directory (used by `pnpm pg:start`):
+     initdb -D ~/pgdata
+     ```
+
+  - **Windows / WSL**
+
+    Use Docker Desktop or install Postgres via the Windows installer. If using WSL, follow the Linux instructions inside the WSL distribution.
+
+   Note: the project includes a helper script `pnpm pg:start` which runs `pg_ctl -D ~/pgdata -l ~/pgdata/server.log start`. After installing Postgres, make sure a data directory exists at `~/pgdata` (for example via `initdb -D ~/pgdata`) so that `pnpm pg:start` can start the server.
 
    Redis is also required for queues and caching. A quick local instance can be started with Docker:
 
