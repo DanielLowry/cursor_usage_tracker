@@ -102,71 +102,94 @@ pnpm clean
 
 ## Running the application
 
+This repository provides a small web app (`@cursor-usage/web`) and a worker (`@cursor-usage/worker`). The README below focuses on getting a local development environment running quickly and reproducibly.
+
 1. **Create an environment file**
 
-   Copy the example and fill in values for your setup:
+   Copy the provided example and fill in values for your environment. Note which scripts load which env file (important for migrations and worker scripts):
 
    ```bash
    cp .env.example .env
-   # edit .env to match your database, Redis and auth settings
+   # For local development scripts that explicitly load `.env.development.local`, also copy:
+   cp .env.example .env.development.local
+   # Or export DATABASE_URL and other variables before running migration/generation commands
    ```
 
-2. **Start required services**
+   Tip: prefer editing `.env.development.local` when running `pnpm` scripts that explicitly load that file; use `.env` for generic environment variables.
 
-   A Postgres instance is provided via Docker Compose:
+2. **Start required services (Postgres, Redis)**
+
+   We recommend using Docker Compose for a reproducible local Postgres instance. The repo exposes helper scripts that use Docker Compose:
 
    ```bash
-   pnpm db:up      # start Postgres in the background
+   pnpm db:up      # start Postgres in the background (via docker-compose)
    pnpm db:logs    # follow container logs
    pnpm db:down    # stop and remove the container
    ```
 
-   Installing PostgreSQL (local options)
+   Alternatives and notes:
 
-   - **Docker (recommended for development)**
-
-     Use the repository's Docker Compose with `pnpm db:up` (preferred):
-
-     ```bash
-     pnpm db:up
-     ```
-
-     Or run a one-off Postgres container:
+   - **Docker one-off** (useful without compose):
 
      ```bash
      docker run --rm -p 5432:5432 -v ~/pgdata:/var/lib/postgresql/data -e POSTGRES_PASSWORD=postgres postgres:15
      ```
 
-   - **Ubuntu / Debian (apt)**
+   - **System package (Ubuntu/Debian)**:
 
      ```bash
      sudo apt update && sudo apt install -y postgresql postgresql-contrib
-     # Initialize a local data directory (used by `pnpm pg:start`):
+     # If you need a local data directory used by `pnpm pg:start`, initialize it:
      initdb -D ~/pgdata
      ```
 
-  - **Windows / WSL**
+   - **Windows / WSL**: Use Docker Desktop or the official Windows installer. Inside WSL, follow the Linux instructions.
 
-    Use Docker Desktop or install Postgres via the Windows installer. If using WSL, follow the Linux instructions inside the WSL distribution.
+   Postgres version: this project is tested with Postgres 15; using the `postgres:15` Docker image or equivalent package is recommended.
 
-  Note: the project includes a helper script `pnpm pg:start` which runs `pg_ctl -D ~/pgdata -l ~/pgdata/server.log start`.
+   `pnpm pg:start` helper
 
-  - On some installs (especially when installing from distribution packages), `initdb` and `pg_ctl` are provided by the PostgreSQL server package but are not added to your shell `PATH` automatically. If `initdb` is not found, run it by providing the full path (for example `/usr/lib/postgresql/15/bin/initdb`) or add the PostgreSQL binaries directory to your `PATH`.
+   - The repository includes `pnpm pg:start` which runs:
 
-  - After installing Postgres, make sure a data directory exists at `~/pgdata` (for example via `initdb -D ~/pgdata`) so that `pnpm pg:start` can start the server.
+     ```bash
+     pg_ctl -D ~/pgdata -l ~/pgdata/server.log start
+     ```
 
-   Redis is also required for queues and caching. A quick local instance can be started with Docker:
+   - Note: some distro installs provide `initdb`/`pg_ctl` but do not add them to the shell `PATH`. If `initdb` or `pg_ctl` is not found, run them with the full path (for example `/usr/lib/postgresql/15/bin/initdb`) or add the Postgres binary directory to your `PATH`.
 
-   ```bash
-   docker run --rm -p 6379:6379 redis:7
-   ```
+   - After installing Postgres, ensure a data directory exists at `~/pgdata` (for example via `initdb -D ~/pgdata`) so that `pnpm pg:start` can start the server.
+
+   - To stop the server started by `pg_ctl`:
+
+     ```bash
+     pg_ctl -D ~/pgdata stop -s -m fast
+     ```
+
+   Redis (queues & caching)
+
+   - For quick local development, run Redis ephemeral with:
+
+     ```bash
+     docker run --rm -p 6379:6379 redis:7
+     ```
+
+   - For persistent local state during multi-run development, run with a volume:
+
+     ```bash
+     docker run -d -p 6379:6379 -v ~/redisdata:/data --name redis redis:7
+     ```
 
 3. **Apply database migrations and seed data**
 
+   Ensure your `DATABASE_URL` is set (either in `.env`/`.env.development.local` or exported) and then run:
+
    ```bash
+   pnpm --filter @cursor-usage/db db:generate
    pnpm --filter @cursor-usage/db db:migrate
    pnpm --filter @cursor-usage/db db:seed   # optional
    ```
+
+   Note: `prisma generate` and `migrate` read the `DATABASE_URL` from your environment; if you use `pnpm db:up` you may need to copy `.env.example` to `.env.development.local` so the scripts can discover the value.
 
 4. **Auth consolidation overview**
 
@@ -181,12 +204,18 @@ pnpm clean
    pnpm dev  # runs web and worker apps concurrently
    ```
 
-   Individual apps can be started as well:
+   Or run apps individually (useful while developing one component):
 
    ```bash
    pnpm --filter @cursor-usage/web dev     # Next.js at http://localhost:3000
    pnpm --filter @cursor-usage/worker dev  # worker with watch mode
    ```
+
+   Ports used (common defaults):
+
+   - Web: 3000
+   - Postgres: 5432
+   - Redis: 6379
 
 6. **Run workers manually**
 
@@ -204,6 +233,28 @@ pnpm clean
    pnpm --filter @cursor-usage/web start
    pnpm --filter @cursor-usage/worker start
    ```
+
+Troubleshooting checklist
+
+- Check process and ports:
+
+  ```bash
+  ps aux | grep postgres
+  ss -ltn | grep 5432
+  ss -ltn | grep 6379
+  ```
+
+- Verify `initdb`/`pg_ctl` availability (may require full path):
+
+  ```bash
+  command -v initdb || echo "initdb not found; try /usr/lib/postgresql/<version>/bin/initdb"
+  ```
+
+- Docker volume permission issues (common on macOS/WSL): ensure `~/pgdata` is writable by the Postgres process or use a Docker-managed volume.
+
+- Migration errors: confirm `DATABASE_URL` is set in the environment file the scripts load.
+
+- If Postgres port is already in use, either stop the conflicting service or change the container/host port mapping.
 
 ## References
 - Specification: `SPEC.md`
