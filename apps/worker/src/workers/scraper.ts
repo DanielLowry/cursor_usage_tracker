@@ -205,6 +205,11 @@ async function fetchCsv(authSession: AuthSession) {
 
 /**
  * Persist captured payloads and create snapshots/deltas from normalized events.
+ * TODO: Split this function - it's too long as is trying to do too many things.
+ * Separate the responsibilities for:
+ * - Persisting full raw blobs - this should only be done weekly, and if there has been any changes since the previous blob persisted.
+ * - Persisting delta raw blobs - this should be done for each capture, and if there has been any changes since the previous delta blob persisted.
+ * - Creating snapshots - this should be done for each capture, and if there has been any changes since the previous snapshot created.
  *
  * Inputs:
  * - captured: array of captured items where each item is { url?, payload: Buffer, kind }
