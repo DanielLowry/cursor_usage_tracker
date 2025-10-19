@@ -34,10 +34,9 @@ enum AlertKind {
   @@map("alert_kind")
 }
 
-// Models for Phase P2.2
 model UsageEvent {
-  id          String     @id @default(uuid()) @db.Uuid
-  captured_at DateTime   @db.Timestamptz()
+  id          String   @id @default(uuid()) @db.Uuid
+  captured_at DateTime @db.Timestamptz()
   kind        String
   model       String
   max_mode    String?
@@ -48,42 +47,51 @@ model UsageEvent {
   total_tokens                     Int
   api_cost_cents                   Int
   api_cost_raw                     String?
-  billing_period_start DateTime? @db.Date
-  billing_period_end   DateTime? @db.Date
-  source      DataSource
-  raw_blob    RawBlob?  @relation(fields: [raw_blob_id], references: [id])
-  raw_blob_id String?   @db.Uuid
 
   @@map("usage_events")
   @@index([captured_at])
-  @@unique([captured_at])
+  @@unique([captured_at]) // your uniqueness guarantee
 }
 
 model Snapshot {
   id            String   @id @default(uuid()) @db.Uuid
   captured_at   DateTime @db.Timestamptz()
+
+  // Derived by scraper at runtime (optional, keep if useful)
   billing_period_start DateTime? @db.Date
   billing_period_end   DateTime? @db.Date
-  table_hash    String
-  rows_count    Int
+
+  // Provenance to the raw file
+  raw_blob     RawBlob  @relation(fields: [raw_blob_id], references: [id])
+  raw_blob_id  String   @db.Uuid
+
+  // What the file logically contained
+  table_hash   String
+  rows_count   Int
+
+  // Helpful bounds (from the file’s parsed rows)
+  min_row_ts   DateTime? @db.Timestamptz()
+  max_row_ts   DateTime? @db.Timestamptz()
 
   @@map("snapshots")
   @@index([captured_at])
-  @@unique([billing_period_start, billing_period_end, table_hash])
+  @@unique([table_hash, rows_count]) 
 }
 
 model RawBlob {
-  id          String    @id @default(uuid()) @db.Uuid
-  captured_at DateTime  @db.Timestamptz()
-  kind        BlobKind
-  url         String?
-  payload     Bytes
-  content_hash String?  @db.Text
-  content_type String?  @db.Text
+  id            String   @id @default(uuid()) @db.Uuid
+  captured_at   DateTime @db.Timestamptz()
+  kind          BlobKind
+  url           String?
+  payload       Bytes
+  content_hash  String   @db.Text
+  content_type  String?  @db.Text
   schema_version String? @db.Text
-  metadata     Json?
-  usage_events UsageEvent[]
+  metadata      Json?
 
+  // no direct relation to UsageEvent anymore
+
+  @@unique([content_hash])
   @@map("raw_blobs")
 }
 
