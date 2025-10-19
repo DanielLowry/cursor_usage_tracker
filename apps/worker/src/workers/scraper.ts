@@ -243,15 +243,32 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
         const billingStart = firstEvent?.billing_period_start ?? null;
         const billingEnd = firstEvent?.billing_period_end ?? null;
 
-        // Find latest existing captured_at for this billing period to compute delta
+        // Find latest existing captured_at for this billing period to compute delta.
+        // Use the `snapshot` table which tracks captures per billing period (and is
+        // the authoritative source for when a particular table_hash was captured).
         let maxExisting: Date | null = null;
         if (billingStart && billingEnd) {
-          const latest = await (prisma as any).usageEvent.findFirst({
-            where: { billing_period_start: billingStart, billing_period_end: billingEnd },
-            orderBy: { captured_at: 'desc' },
-            select: { captured_at: true },
-          });
-          if (latest) maxExisting = latest.captured_at as Date;
+          try {
+            const latestSnapshot = await (prisma as any).snapshot.findFirst({
+              where: { billing_period_start: billingStart, billing_period_end: billingEnd },
+              orderBy: { captured_at: 'desc' },
+              select: { captured_at: true },
+            });
+            if (latestSnapshot) maxExisting = latestSnapshot.captured_at as Date;
+          } catch (err) {
+            // Fallback: if snapshot lookup fails for any reason, try usage_events
+            try {
+              const latest = await (prisma as any).usageEvent.findFirst({
+                where: { billing_period_start: billingStart, billing_period_end: billingEnd },
+                orderBy: { captured_at: 'desc' },
+                select: { captured_at: true },
+              });
+              if (latest) maxExisting = latest.captured_at as Date;
+            } catch (err2) {
+              console.warn('runScrape: failed to determine latest existing capture for billing period', err, err2);
+              maxExisting = null;
+            }
+          }
         }
 
         const deltaEvents = maxExisting ? normalizedEvents.filter((e) => e.captured_at > maxExisting) : normalizedEvents;

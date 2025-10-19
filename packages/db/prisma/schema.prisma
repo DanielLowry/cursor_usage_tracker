@@ -89,6 +89,9 @@ model RawBlob {
   schema_version String? @db.Text
   metadata      Json?
 
+  // snapshots that reference this raw blob (provenance)
+  snapshots     Snapshot[]
+
   // no direct relation to UsageEvent anymore
 
   @@unique([content_hash])

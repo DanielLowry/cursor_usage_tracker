@@ -166,6 +166,11 @@ export async function createSnapshotIfChanged(input: SnapshotInput): Promise<Sna
           total_tokens: event.total_tokens,
           api_cost_cents: event.api_cost_cents,
           api_cost_raw: (event as any).api_cost_raw ?? null,
+          // Persist billing period and provenance so queries can filter by period
+          billing_period_start: (event as any).billing_period_start ?? undefined,
+          billing_period_end: (event as any).billing_period_end ?? undefined,
+          source: (event as any).source ?? 'network_json',
+          raw_blob_id: (event as any).raw_blob_id ?? undefined,
         },
         select: { id: true },
       });
@@ -266,6 +271,11 @@ export async function createSnapshotWithDelta(params: {
           total_tokens: event.total_tokens,
           api_cost_cents: event.api_cost_cents,
           api_cost_raw: (event as any).api_cost_raw ?? null,
+          // Persist billing period and provenance so queries can filter by period
+          billing_period_start: (event as any).billing_period_start ?? undefined,
+          billing_period_end: (event as any).billing_period_end ?? undefined,
+          source: (event as any).source ?? 'network_json',
+          raw_blob_id: (event as any).raw_blob_id ?? undefined,
         },
         select: { id: true },
       });
