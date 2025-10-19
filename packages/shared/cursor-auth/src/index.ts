@@ -3,7 +3,7 @@
 import * as fs from 'fs';
 import * as pathModule from 'path';
 import * as crypto from 'crypto';
-import { RawCookie, SessionData, buildCookieHeader, deriveRawCookiesFromSessionData, CursorAuthState, AuthSession } from './AuthSession';
+import { RawCookie, SessionData, buildCookieHeader, deriveRawCookiesFromSessionData, CursorAuthState, AuthSession, validateRawCookies } from './AuthSession';
 // Re-export helpers from AuthSession so consumers can import from the package root
 export { validateRawCookies, persistEncryptedSessionData, deriveRawCookiesFromSessionData, buildCookieHeader } from './AuthSession';
 
@@ -328,5 +328,17 @@ export async function getAuthHeaders(stateDir: string = './data'): Promise<Recor
     console.log('cursor-auth: getAuthHeaders failed:', (e as any).message ?? String(e));
     return {} as Record<string, string>;
   }
+}
+
+/**
+ * verifyAuthState
+ *
+ * Convenience wrapper that reads canonical raw cookies and validates them
+ * against the usage-summary API using the existing validateRawCookies helper.
+ */
+export async function verifyAuthState(stateDir: string = './data') {
+  const cookies = await readRawCookies(stateDir);
+  const proof = await validateRawCookies(cookies);
+  return { cookies, proof };
 }
 

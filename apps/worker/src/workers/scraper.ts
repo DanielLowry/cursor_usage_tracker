@@ -60,89 +60,68 @@ async function fetchWithCursorCookies(authSession: AuthSession, targetUrl: strin
 // - Performs a pre-auth probe against usage-summary using stored cookies
 // - Downloads CSV export via authenticated fetch
 // - Persists raw CSV as compressed blob and enforces retention
-export async function runScrape(): Promise<ScrapeResult> {
-  // validate and normalize env vars
+// Helpers extracted from runScrape for clarity and testability
+function parseEnv() {
   const parsed = envSchema.safeParse(process.env);
-  if (!parsed.success) {
-    throw new Error(`Invalid env: ${parsed.error.message}`);
-  }
-  const env = parsed.data as { CURSOR_AUTH_STATE_DIR: string; RAW_BLOB_KEEP_N: number };
-  console.log('runScrape: env', { CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
-  // Resolve canonical state path. Worker default './data' may be relative to apps/worker;
-  // prefer repo-level web data folder when worker-local file is missing.
-  // Strategy:
-  // 1) If the configured CURSOR_AUTH_STATE_DIR contains a cursor.state.json file, use it.
-  // 2) Otherwise, walk up from the current cwd to find the repo root (using pnpm-workspace.yaml, turbo.json, or .git)
-  //    and check `apps/web/data/cursor.state.json` there.
-  // 3) If neither exists, fall back to the configured directory (may cause validation to fail later).
-  const requestedStateDir = env.CURSOR_AUTH_STATE_DIR || './data';
+  if (!parsed.success) throw new Error(`Invalid env: ${parsed.error.message}`);
+  return parsed.data as { CURSOR_AUTH_STATE_DIR: string; RAW_BLOB_KEEP_N: number };
+}
+
+function resolveStateDir(requestedStateDir: string) {
   const requestedStatePath = path.join(path.resolve(requestedStateDir), 'cursor.state.json');
-  let chosenStateDir = requestedStateDir;
-
   if (fs.existsSync(requestedStatePath)) {
-    // configured path already contains state file
-    chosenStateDir = path.resolve(requestedStateDir);
-    console.log('runScrape: using configured auth state dir:', chosenStateDir);
-  } else {
-    // try repo web data path — robustly find repo root by walking up from current cwd
-    // Look for a repo-level marker (pnpm-workspace.yaml, turbo.json, or .git)
-    let repoRoot = process.cwd();
-    // Walk up the filesystem to find a repo-level marker. Use a bounded loop
-    // (max 100 iterations) to avoid constant-condition lint errors and to be
-    // defensive against pathological symlinked directory structures.
-    let foundRoot = false;
-    for (let i = 0; i < 100; i++) {
-      const marker1 = path.join(repoRoot, 'pnpm-workspace.yaml');
-      const marker2 = path.join(repoRoot, 'turbo.json');
-      const marker3 = path.join(repoRoot, '.git');
-      if (fs.existsSync(marker1) || fs.existsSync(marker2) || fs.existsSync(marker3)) { foundRoot = true; break; }
-      const parent = path.dirname(repoRoot);
-      if (parent === repoRoot) break;
-      repoRoot = parent;
-    }
-    if (!foundRoot) repoRoot = process.cwd();
-    const alt = path.join(repoRoot, 'apps', 'web', 'data');
-    const altStatePath = path.join(alt, 'cursor.state.json');
-    if (fs.existsSync(altStatePath)) {
-      console.log('runScrape: using alternative auth state dir (repo-root):', alt);
-      chosenStateDir = alt;
-    } else {
-      console.log('runScrape: no cursor.state.json found at', requestedStatePath, 'or', altStatePath);
-      chosenStateDir = requestedStateDir; // keep original, let validation fail
-    }
+    return path.resolve(requestedStateDir);
   }
 
-  // Build cookie header from shared canonical state (this will emit readRawCookies + getAuthHeaders logs)
+  let repoRoot = process.cwd();
+  let foundRoot = false;
+  for (let i = 0; i < 100; i++) {
+    const marker1 = path.join(repoRoot, 'pnpm-workspace.yaml');
+    const marker2 = path.join(repoRoot, 'turbo.json');
+    const marker3 = path.join(repoRoot, '.git');
+    if (fs.existsSync(marker1) || fs.existsSync(marker2) || fs.existsSync(marker3)) { foundRoot = true; break; }
+    const parent = path.dirname(repoRoot);
+    if (parent === repoRoot) break;
+    repoRoot = parent;
+  }
+  if (!foundRoot) repoRoot = process.cwd();
+  const alt = path.join(repoRoot, 'apps', 'web', 'data');
+  const altStatePath = path.join(alt, 'cursor.state.json');
+  if (fs.existsSync(altStatePath)) return alt;
+  return requestedStateDir;
+}
+
+async function ensureAuth(chosenStateDir: string) {
+  // Preserve side-effect logging from getAuthHeaders
   await getAuthHeaders(chosenStateDir);
 
-  // Also log the preview hash for parity with previous behavior and create an AuthSession
   const authSession = new AuthSession(chosenStateDir);
   const { hash } = await authSession.preview();
   console.log('runScrape: auth session hash:', hash);
 
-  // Pre-auth probe: reuse shared validateRawCookies helper which encapsulates the
-  // usage-summary fetch and validation logic.
-  // readRawCookies returns a Promise, so await it before passing to validateRawCookies
-  const { readRawCookies } = await import('../../../../packages/shared/cursor-auth/src');
-  const rawCookies = await readRawCookies(chosenStateDir);
-  const cookiesValidation = await validateRawCookies(rawCookies);
-  if (!cookiesValidation.ok) {
-    throw new Error(`auth probe failed: status=${cookiesValidation.status} reason=${cookiesValidation.reason}`);
+  // Use shared wrapper if available (verifyAuthState) otherwise fall back to readRawCookies + validateRawCookies
+  try {
+    const { verifyAuthState } = await import('../../../../packages/shared/cursor-auth/src');
+    const { proof } = await verifyAuthState(chosenStateDir);
+    if (!proof.ok) throw new Error(`auth probe failed: status=${proof.status} reason=${proof.reason}`);
+  } catch (e) {
+    // If verifyAuthState isn't available for any reason, fallback to manual steps
+    const { readRawCookies } = await import('../../../../packages/shared/cursor-auth/src');
+    const rawCookies = await readRawCookies(chosenStateDir);
+    const proof = await validateRawCookies(rawCookies);
+    if (!proof.ok) throw new Error(`auth probe failed: status=${proof.status} reason=${proof.reason}`);
   }
 
-  // Fetch CSV export directly using same Cookie header
+  return authSession;
+}
+
+async function fetchCsv(authSession: AuthSession) {
   const csvRes = await fetchWithCursorCookies(authSession, 'https://cursor.com/api/dashboard/export-usage-events-csv');
-  const csvStatus = csvRes.status;
-  if (csvStatus !== 200) {
-    throw new Error(`csv fetch failed: status=${csvStatus}`);
-  }
-  const csvBuf = Buffer.from(await csvRes.arrayBuffer());
+  if (csvRes.status !== 200) throw new Error(`csv fetch failed: status=${csvRes.status}`);
+  return Buffer.from(await csvRes.arrayBuffer());
+}
 
-  // Capture and persist
-  const captured: Array<{ url?: string; payload: Buffer; kind: 'html' | 'network_json' }> = [];
-  captured.push({ url: 'https://cursor.com/api/dashboard/export-usage-events-csv', payload: csvBuf, kind: 'html' });
-
-  // Persist any captured payloads as compressed raw blobs and attempt to create snapshots
+async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; kind: 'html' | 'network_json' }>, keepN: number) {
   let saved = 0;
   const now = new Date();
   console.log('runScrape: captured count=', captured.length);
@@ -157,14 +136,29 @@ export async function runScrape(): Promise<ScrapeResult> {
       },
       select: { id: true },
     });
-    // For CSV payloads, we currently persist only the raw blob.
-    // A CSV→normalized mapping can be added later to feed snapshots/events.
     saved += 1;
     console.log('runScrape: saved one blob, id=', blob.id, 'kind=', item.kind);
   }
+  await trimRawBlobs(keepN);
+  return saved;
+}
 
-  // Trim raw blobs retention to the configured number
-  await trimRawBlobs(env.RAW_BLOB_KEEP_N);
+export async function runScrape(): Promise<ScrapeResult> {
+  const env = parseEnv();
+  console.log('runScrape: env', { CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
+
+  const requestedStateDir = env.CURSOR_AUTH_STATE_DIR || './data';
+  const chosenStateDir = resolveStateDir(requestedStateDir);
+  console.log('runScrape: using auth state dir:', chosenStateDir);
+
+  const authSession = await ensureAuth(chosenStateDir);
+
+  const csvBuf = await fetchCsv(authSession);
+
+  const captured: Array<{ url?: string; payload: Buffer; kind: 'html' | 'network_json' }> = [];
+  captured.push({ url: 'https://cursor.com/api/dashboard/export-usage-events-csv', payload: csvBuf, kind: 'html' });
+
+  const saved = await persistCaptured(captured, env.RAW_BLOB_KEEP_N);
   return { savedCount: saved };
 }
 
