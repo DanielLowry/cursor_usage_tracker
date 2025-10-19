@@ -18,6 +18,7 @@ import { Queue } from 'bullmq';
 import { getRedis } from '@cursor-usage/redis';
 import { createSnapshotIfChanged } from '../../../../packages/db/src/snapshots';
 import { createHash } from 'crypto';
+import { parse as parseCsv } from 'csv-parse/sync';
 
 // Export a lazy-initialized queue to avoid runtime ordering issues when this
 // module is imported by the scheduler or when the worker runs in different
@@ -130,10 +131,36 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
     // Always parse and attempt snapshot creation, even if duplicate blob content
     let parsedPayload: unknown = null;
     if (item.kind === 'network_json') {
+      console.log('runScrape: parsing network json');
       try { parsedPayload = JSON.parse(item.payload.toString('utf8')); } catch { parsedPayload = null; }
     } else if (item.kind === 'html') {
-      // TODO: implement CSV->normalized mapping; for now, skip snapshot for html
-      parsedPayload = null;
+      console.log('runScrape: parsing CSV');
+      // CSV -> normalized payload expected by mapNetworkJson
+      try {
+        const csvText = item.payload.toString('utf8');
+        const records: Array<Record<string, string>> = parseCsv(csvText, { columns: true, skip_empty_lines: true, trim: true });
+        if (records.length > 0) {
+          // Determine billing period from first row Date
+          const iso = records[0]['Date'];
+          const d = new Date(iso);
+          const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
+          const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+          const rows = records.map((r) => ({
+            model: String(r['Model'] || '').trim(),
+            input_with_cache_write_tokens: Number(r['Input (w/ Cache Write)'] || 0),
+            input_without_cache_write_tokens: Number(r['Input (w/o Cache Write)'] || 0),
+            cache_read_tokens: Number(r['Cache Read'] || 0),
+            output_tokens: Number(r['Output Tokens'] || 0),
+            total_tokens: Number(r['Total Tokens'] || 0),
+          }));
+          parsedPayload = { billing_period: { start, end }, rows } as unknown;
+        } else {
+          parsedPayload = { billing_period: undefined, rows: [] } as unknown;
+        }
+      } catch (e) {
+        console.warn('runScrape: CSV parse failed', e);
+        parsedPayload = null;
+      }
     }
 
     let blobId: string | null = null;

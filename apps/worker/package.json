@@ -1,4 +1,3 @@
-
 {
   "name": "@cursor-usage/worker",
   "version": "0.1.0",
@@ -7,7 +6,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsup --dts",
-    "install_playwright" : "playwright install",
+    "install_playwright": "playwright install",
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
     "onboard": "tsx src/scripts/onboard.ts",
@@ -19,9 +18,10 @@
   },
   "dependencies": {
     "@cursor-usage/db": "workspace:*",
-    "@cursor-usage/types": "workspace:*",
     "@cursor-usage/redis": "workspace:*",
+    "@cursor-usage/types": "workspace:*",
     "bullmq": "^5.1.0",
+    "csv-parse": "^5.6.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
