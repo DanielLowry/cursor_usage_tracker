@@ -5,6 +5,7 @@ This project tracks and visualizes your Cursor Pro usage without Admin API acces
 This repository is developed in phases. Phase 0 focuses only on bootstrapping your environment and confirming prerequisites.
 
 ## Prerequisites (high level)
+
 - Node.js 20.x (use `nvm`/`nvm-windows` to pin 20.x)
 - pnpm 9 (via Corepack)
 - Docker (Docker Desktop on Windows; Docker Engine on Linux)
@@ -13,10 +14,12 @@ This repository is developed in phases. Phase 0 focuses only on bootstrapping yo
 If Node is not installed yet, or for step-by-step verification commands, see the OS-specific guides.
 
 ## OS-specific install guides
+
 - Windows: [docs/INSTALL.windows.md](./docs/INSTALL.windows.md)
 - Linux (Ubuntu/Debian): [docs/INSTALL.linux.md](./docs/INSTALL.linux.md)
 
 ## Node version
+
 This repo includes an `.nvmrc` with `20`. Use your OS package manager plus `nvm`/`nvm-windows` to ensure Node 20.x. If you install a newer Node, switch to 20.x to match the toolchain.nvm
 
 ## Monorepo quickstart
@@ -30,6 +33,7 @@ After installing the prerequisites, the repository setup involves these high-lev
 For specific commands and step-by-step instructions, please refer to the OS-specific installation guides.
 
 ## Workspace structure
+
 ```
 .
 ├─ apps/
@@ -128,7 +132,6 @@ This repository provides a small web app (`@cursor-usage/web`) and a worker (`@c
    ```
 
    Alternatives and notes:
-
    - **Docker one-off** (useful without compose):
 
      ```bash
@@ -148,7 +151,6 @@ This repository provides a small web app (`@cursor-usage/web`) and a worker (`@c
    Postgres version: this project is tested with Postgres 15; using the `postgres:15` Docker image or equivalent package is recommended.
 
    `pnpm pg:start` helper
-
    - The repository includes `pnpm pg:start` which runs:
 
      ```bash
@@ -166,7 +168,6 @@ This repository provides a small web app (`@cursor-usage/web`) and a worker (`@c
      ```
 
    Redis (queues & caching)
-
    - For quick local development, run Redis ephemeral with:
 
      ```bash
@@ -192,7 +193,6 @@ This repository provides a small web app (`@cursor-usage/web`) and a worker (`@c
    Note: `prisma generate` and `migrate` read the `DATABASE_URL` from your environment; if you use `pnpm db:up` you may need to copy `.env.example` to `.env.development.local` so the scripts can discover the value.
 
 4. **Auth consolidation overview**
-
    - Canonical state lives at `./data/cursor.state.json` (written atomically).
    - Runtime uses only the `Cookie` header derived from this file.
    - Uploaded session artifacts are encrypted with `SESSION_ENCRYPTION_KEY` and stored under `./data/diagnostics/` for troubleshooting only.
@@ -212,10 +212,39 @@ This repository provides a small web app (`@cursor-usage/web`) and a worker (`@c
    ```
 
    Ports used (common defaults):
-
    - Web: 3000
    - Postgres: 5432
    - Redis: 6379
+
+## Data Flow: Raw Blobs and Snapshots
+
+- Raw blob capture
+  - The scraper authenticates to Cursor and downloads the usage export (currently CSV). The original payload is stored in `raw_blobs.payload` as gzipped bytes, along with metadata (`content_hash`, `content_type`, `schema_version`). A short retention policy trims old blobs.
+  - A `content_hash` (sha256 of the pre-gzip payload) prevents storing duplicate blobs; if a duplicate is detected, we skip the insert but still process the payload.
+
+- Inline snapshot creation
+  - Immediately after each capture (or dedup hit), the worker parses the payload and calls `createSnapshotIfChanged`. For JSON/network payloads this runs now; CSV parsing is planned next.
+  - Usage rows are normalized into `usage_events`. Each row gets a stable `row_hash` so repeated CSVs don’t duplicate events (idempotent upsert).
+  - A stable table hash is computed per billing period; if unchanged, no new snapshot row is written (idempotent snapshotting).
+
+- Why both layers?
+  - Raw blobs are the immutable source-of-truth for audit and future reprocessing.
+  - Snapshots + usage events are query-friendly, deduplicated materializations for the UI and APIs.
+
+## Deduplication and Idempotence
+
+- Blob-level: `raw_blobs.content_hash` (sha256 of raw payload) avoids storing identical captures.
+- Row-level: `usage_events.row_hash` (sha256 of normalized salient fields) avoids duplicate usage rows across re-ingestions.
+- Snapshot-level: stable table hash per billing period prevents duplicate snapshots when nothing changed.
+
+## Summary API
+
+- Route: `apps/web/app/api/summary-min/route.ts` returns:
+  - `snapshotCount`: number of rows in `snapshots`
+  - `lastSnapshotAt`: most recent snapshot timestamp
+  - `usageEventCount`: total usage events
+  - `rawBlobCount`: number of raw blobs stored
+  - `lastRawBlobAt`: most recent raw blob timestamp
 
 6. **Run workers manually**
 
@@ -257,6 +286,7 @@ Troubleshooting checklist
 - If Postgres port is already in use, either stop the conflicting service or change the container/host port mapping.
 
 ## References
+
 - Specification: `SPEC.md`
 - Acceptance Criteria: `ACCEPTANCE.md`
 - License: `LICENSE` (PUSL-1.0 — personal use only)
