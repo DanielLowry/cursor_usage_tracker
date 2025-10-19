@@ -16,7 +16,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Queue } from 'bullmq';
 import { getRedis } from '@cursor-usage/redis';
-import { createSnapshotIfChanged } from '../../../../packages/db/src/snapshots';
+import { createSnapshotIfChanged, createSnapshotWithDelta } from '../../../../packages/db/src/snapshots';
+import { mapNetworkJson } from '../../../../packages/shared/ingest/src';
+import { stableHash } from '../../../../packages/shared/hash/src';
 import { createHash } from 'crypto';
 import { parse as parseCsv } from 'csv-parse/sync';
 
@@ -175,11 +177,11 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
 
     let blobId: string | null = null;
     if (existing) {
-      // We know this content already exists in raw_blobs — reuse it for snapshot linking.
+      // Existing content: reuse for snapshot linking.
       blobId = existing.id;
       console.log('runScrape: duplicate content detected, using existing blob id=', blobId);
-    } else if (isWeeklyCapture) {
-      // Only persist new raw blobs during the weekly forensic capture to save storage.
+    } else {
+      // Persist any new raw content (gzip + provenance). Let content_hash decide de-duplication.
       const gz = await gzipBuffer(item.payload);
       const blob = await (prisma as any).rawBlob.create({
         data: {
@@ -190,23 +192,78 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
           content_hash: contentHash,
           content_type: item.kind === 'html' ? 'text/csv' : 'application/json',
           schema_version: 'v1',
+          metadata: {
+            provenance: {
+              method: 'http_csv',
+              url: item.url ?? null,
+              fetched_at: now.toISOString(),
+              size_bytes: item.payload.length,
+            },
+          },
         },
         select: { id: true },
       });
       saved += 1;
       blobId = blob.id;
-      console.log('runScrape: saved weekly blob, id=', blob.id, 'kind=', item.kind);
-    } else {
-      // Not weekly and content is new — do not persist the full CSV blob to save space.
-      // parsedPayload will still be processed to create snapshots/events as needed.
-      console.log('runScrape: skipping raw blob storage for non-weekly capture (new content)');
+      console.log('runScrape: saved raw blob, id=', blob.id, 'kind=', item.kind);
     }
 
     if (parsedPayload) {
       try {
-        // For regular scrapes we do not attach raw_blob_id to every row.
-        // Only pass rawBlobId when this persist corresponds to a weekly forensic capture.
-        const res = await createSnapshotIfChanged({ payload: parsedPayload, capturedAt: now, rawBlobId: blobId });
+        // Normalize payload into usage events
+        const normalizedEvents = mapNetworkJson(parsedPayload, now, blobId ?? null);
+
+        // Build stable view (same logic as snapshots.buildStableView)
+        const sortedEvents = [...normalizedEvents].sort((a, b) => {
+          if (a.model !== b.model) return a.model.localeCompare(b.model);
+          return a.total_tokens - b.total_tokens;
+        });
+        const firstEvent = sortedEvents[0];
+        const billingPeriod = {
+          start: firstEvent?.billing_period_start ? firstEvent.billing_period_start.toISOString().split('T')[0] : null,
+          end: firstEvent?.billing_period_end ? firstEvent.billing_period_end.toISOString().split('T')[0] : null,
+        };
+        const rowsForHash = sortedEvents.map((e: any) => ({
+          model: e.model,
+          kind: e.kind,
+          max_mode: e.max_mode ?? null,
+          input_with_cache_write_tokens: e.input_with_cache_write_tokens,
+          input_without_cache_write_tokens: e.input_without_cache_write_tokens,
+          cache_read_tokens: e.cache_read_tokens,
+          output_tokens: e.output_tokens,
+          total_tokens: e.total_tokens,
+          api_cost_cents: e.api_cost_cents,
+          api_cost_raw: (e as any).api_cost_raw ?? null,
+          cost_to_you_cents: (e as any).cost_to_you_cents ?? null,
+        }));
+        const stableView = { billing_period: billingPeriod, rows: rowsForHash };
+        const tableHash = stableHash(stableView);
+
+        // Determine billing period bounds as Date objects (or null)
+        const billingStart = firstEvent?.billing_period_start ?? null;
+        const billingEnd = firstEvent?.billing_period_end ?? null;
+
+        // Find latest existing captured_at for this billing period to compute delta
+        let maxExisting: Date | null = null;
+        if (billingStart && billingEnd) {
+          const latest = await (prisma as any).usageEvent.findFirst({
+            where: { billing_period_start: billingStart, billing_period_end: billingEnd },
+            orderBy: { captured_at: 'desc' },
+            select: { captured_at: true },
+          });
+          if (latest) maxExisting = latest.captured_at as Date;
+        }
+
+        const deltaEvents = maxExisting ? normalizedEvents.filter((e) => e.captured_at > maxExisting) : normalizedEvents;
+
+        const res = await createSnapshotWithDelta({
+          billingPeriodStart: billingStart,
+          billingPeriodEnd: billingEnd,
+          tableHash,
+          totalRowsCount: normalizedEvents.length,
+          capturedAt: now,
+          normalizedDeltaEvents: deltaEvents,
+        });
         console.log('runScrape: snapshot result', res);
       } catch (e) {
         console.warn('runScrape: snapshot creation failed', e);
@@ -229,6 +286,19 @@ export async function runScrape(): Promise<ScrapeResult> {
 
   const csvBuf = await fetchCsv(authSession);
 
+  // Short-circuit: if this CSV payload is identical to a previously stored raw blob,
+  // skip further processing to avoid duplicate snapshots and storage.
+  try {
+    const contentHash = createHash('sha256').update(csvBuf).digest('hex');
+    const existing = await (prisma as any).rawBlob.findFirst({ where: { content_hash: contentHash }, select: { id: true } });
+    if (existing) {
+      console.log('runScrape: CSV identical to existing raw blob id=', existing.id, ' — skipping persist');
+      return { savedCount: 0 };
+    }
+  } catch (err) {
+    console.warn('runScrape: failed short-circuit check for identical CSV, proceeding with persist', err);
+  }
+
   const captured: Array<{ url?: string; payload: Buffer; kind: 'html' | 'network_json' }> = [];
   captured.push({ url: 'https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens', payload: csvBuf, kind: 'html' });
 
@@ -241,6 +311,7 @@ export async function ingestFixtures(fixtures: Array<{ url?: string; json: unkno
   const now = new Date();
   for (const f of fixtures) {
     const buf = Buffer.from(JSON.stringify(f.json));
+    const contentHash = createHash('sha256').update(buf).digest('hex');
     const gz = await gzipBuffer(buf);
     await prisma.rawBlob.create({
       data: {
@@ -248,6 +319,9 @@ export async function ingestFixtures(fixtures: Array<{ url?: string; json: unkno
         kind: 'network_json',
         url: f.url,
         payload: gz,
+        content_hash: contentHash,
+        content_type: 'application/json',
+        schema_version: 'v1',
       },
     });
     saved += 1;
