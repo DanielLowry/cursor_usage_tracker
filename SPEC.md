@@ -25,7 +25,7 @@ This application tracks usage data from the Cursor Pro “Usage” page for user
   - Verify authentication by calling `https://cursor.com/api/usage-summary` and checking required fields: `billingCycleStart`, `billingCycleEnd`, `membershipType`.
 - **Scheduled scraping (`scrape` job):**
   - Build `Cookie` header from stored cookies.
-  - Download `https://cursor.com/api/dashboard/export-usage-events-csv`.
+  - Download `https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens`.
   - Persist raw CSV as compressed blob.
   - Parse CSV to **normalized records** (see §3).
 

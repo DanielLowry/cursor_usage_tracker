@@ -7,7 +7,7 @@ export async function fetchLiveCsv(stateDir: string = './data', signal?: AbortSi
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
-    const res = await fetch('https://cursor.com/api/dashboard/export-usage-events-csv', {
+    const res = await fetch('https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens', {
       method: 'GET',
       headers,
       signal: signal ?? controller.signal,

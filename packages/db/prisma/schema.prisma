@@ -38,16 +38,16 @@ enum AlertKind {
 model UsageEvent {
   id          String     @id @default(uuid()) @db.Uuid
   captured_at DateTime   @db.Timestamptz()
+  kind        String
   model       String
-  row_hash    String?    @unique
-  source_row  Json?
+  max_mode    String?
   input_with_cache_write_tokens    Int
   input_without_cache_write_tokens Int
   cache_read_tokens                Int
   output_tokens                    Int
   total_tokens                     Int
   api_cost_cents                   Int
-  cost_to_you_cents                Int
+  api_cost_raw                     String?
   billing_period_start DateTime? @db.Date
   billing_period_end   DateTime? @db.Date
   source      DataSource

@@ -40,13 +40,15 @@ function buildStableView(events: NormalizedUsageEvent[]): unknown {
   // Build normalized rows for hashing
   const rows = sortedEvents.map((e) => ({
     model: e.model,
+    kind: e.kind,
+    max_mode: e.max_mode,
     input_with_cache_write_tokens: e.input_with_cache_write_tokens,
     input_without_cache_write_tokens: e.input_without_cache_write_tokens,
     cache_read_tokens: e.cache_read_tokens,
     output_tokens: e.output_tokens,
     total_tokens: e.total_tokens,
     api_cost_cents: e.api_cost_cents,
-    cost_to_you_cents: e.cost_to_you_cents,
+    api_cost_raw: (e as any).api_cost_raw ?? null,
   }));
 
   return {

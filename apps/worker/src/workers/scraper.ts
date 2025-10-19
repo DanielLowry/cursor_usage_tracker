@@ -114,7 +114,7 @@ async function ensureAuth(chosenStateDir: string) {
 }
 
 async function fetchCsv(authSession: AuthSession) {
-  const csvRes = await fetchWithCursorCookies(authSession, 'https://cursor.com/api/dashboard/export-usage-events-csv');
+  const csvRes = await fetchWithCursorCookies(authSession, 'https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens');
   if (csvRes.status !== 200) throw new Error(`csv fetch failed: status=${csvRes.status}`);
   return Buffer.from(await csvRes.arrayBuffer());
 }
@@ -152,6 +152,9 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
             cache_read_tokens: Number(r['Cache Read'] || 0),
             output_tokens: Number(r['Output Tokens'] || 0),
             total_tokens: Number(r['Total Tokens'] || 0),
+            // New CSV with ?strategy=tokens exposes 'Cost' which we map to api_cost
+            api_cost: (r['Cost'] ?? r['cost'] ?? r['API Cost'] ?? r['Api Cost'] ?? '') as unknown as string,
+            cost_to_you: (r['Cost to you'] ?? r['cost_to_you'] ?? r['Cost to you (you)'] ?? '') as unknown as string,
           }));
           parsedPayload = { billing_period: { start, end }, rows } as unknown;
         } else {
@@ -212,7 +215,7 @@ export async function runScrape(): Promise<ScrapeResult> {
   const csvBuf = await fetchCsv(authSession);
 
   const captured: Array<{ url?: string; payload: Buffer; kind: 'html' | 'network_json' }> = [];
-  captured.push({ url: 'https://cursor.com/api/dashboard/export-usage-events-csv', payload: csvBuf, kind: 'html' });
+  captured.push({ url: 'https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens', payload: csvBuf, kind: 'html' });
 
   const saved = await persistCaptured(captured, env.RAW_BLOB_KEEP_N);
   return { savedCount: saved };
