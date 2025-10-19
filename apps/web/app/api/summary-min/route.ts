@@ -29,7 +29,15 @@ export async function GET() {
 
     const usageEventCount = await prisma.usageEvent.count();
 
-    return NextResponse.json({ snapshotCount, lastSnapshotAt, usageEventCount });
+    // Raw blob stats
+    const rawBlobCount = await prisma.rawBlob.count();
+    const lastRawBlob = await prisma.rawBlob.findFirst({
+      orderBy: { captured_at: 'desc' },
+      select: { captured_at: true },
+    });
+    const lastRawBlobAt = lastRawBlob?.captured_at?.toISOString() || null;
+
+    return NextResponse.json({ snapshotCount, lastSnapshotAt, usageEventCount, rawBlobCount, lastRawBlobAt });
   } catch (error) {
     console.error('Error fetching summary data:', error);
     return NextResponse.json({ snapshotCount: 0, lastSnapshotAt: null, usageEventCount: 0 });

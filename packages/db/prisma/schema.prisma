@@ -39,6 +39,8 @@ model UsageEvent {
   id          String     @id @default(uuid()) @db.Uuid
   captured_at DateTime   @db.Timestamptz()
   model       String
+  row_hash    String?    @unique
+  source_row  Json?
   input_with_cache_write_tokens    Int
   input_without_cache_write_tokens Int
   cache_read_tokens                Int
@@ -75,6 +77,10 @@ model RawBlob {
   kind        BlobKind
   url         String?
   payload     Bytes
+  content_hash String?  @db.Text
+  content_type String?  @db.Text
+  schema_version String? @db.Text
+  metadata     Json?
   usage_events UsageEvent[]
 
   @@map("raw_blobs")

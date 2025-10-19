@@ -1,6 +1,7 @@
 import prisma from './client';
 import { stableHash } from '@cursor-usage/hash';
 import { mapNetworkJson, type NormalizedUsageEvent } from '@cursor-usage/ingest';
+import { createHash } from 'crypto';
 
 export type SnapshotInput = {
   payload: unknown;
@@ -145,10 +146,29 @@ export async function createSnapshotIfChanged(input: SnapshotInput): Promise<Sna
   // Insert usage events and return their ids
   const usageEventIds: string[] = [];
   for (const event of normalizedEvents) {
-    const created = await prisma.usageEvent.create({
-      data: {
+    // Build per-row identity hash for idempotent upsert
+    const normalizedIdentity = [
+      event.captured_at.toISOString(),
+      (event.model || '').trim(),
+      String(event.input_with_cache_write_tokens ?? 0),
+      String(event.input_without_cache_write_tokens ?? 0),
+      String(event.cache_read_tokens ?? 0),
+      String(event.output_tokens ?? 0),
+      String(event.total_tokens ?? 0),
+      String(event.api_cost_cents ?? 0),
+      String(event.cost_to_you_cents ?? 0),
+      event.billing_period_start ? event.billing_period_start.toISOString().slice(0, 10) : '-',
+      event.billing_period_end ? event.billing_period_end.toISOString().slice(0, 10) : '-',
+    ].join('|');
+    const rowHash = createHash('sha256').update(normalizedIdentity).digest('hex');
+
+    const upserted = await prisma.usageEvent.upsert({
+      where: { row_hash: rowHash },
+      update: {},
+      create: {
         captured_at: event.captured_at,
         model: event.model,
+        row_hash: rowHash,
         input_with_cache_write_tokens: event.input_with_cache_write_tokens,
         input_without_cache_write_tokens: event.input_without_cache_write_tokens,
         cache_read_tokens: event.cache_read_tokens,
@@ -161,8 +181,9 @@ export async function createSnapshotIfChanged(input: SnapshotInput): Promise<Sna
         source: 'network_json',
         raw_blob_id: event.raw_blob_id ?? undefined,
       },
+      select: { id: true },
     });
-    usageEventIds.push(created.id);
+    usageEventIds.push(upserted.id);
   }
 
   return {

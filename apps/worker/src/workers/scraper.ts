@@ -4,7 +4,7 @@
 import prisma from '../../../../packages/db/src/client';
 import { trimRawBlobs } from '../../../../packages/db/src/retention';
 // Cursor authentication state management
-import { getAuthHeaders, validateRawCookies } from '../../../../packages/shared/cursor-auth/src';
+import { getAuthHeaders, validateRawCookies, verifyAuthState, readRawCookies } from '../../../../packages/shared/cursor-auth/src';
 import { AuthSession } from '../../../../packages/shared/cursor-auth/src/AuthSession';
 // Env validation
 import { z } from 'zod';
@@ -16,6 +16,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Queue } from 'bullmq';
 import { getRedis } from '@cursor-usage/redis';
+import { createSnapshotIfChanged } from '../../../../packages/db/src/snapshots';
+import { createHash } from 'crypto';
 
 // Export a lazy-initialized queue to avoid runtime ordering issues when this
 // module is imported by the scheduler or when the worker runs in different
@@ -99,14 +101,9 @@ async function ensureAuth(chosenStateDir: string) {
   const { hash } = await authSession.preview();
   console.log('runScrape: auth session hash:', hash);
 
-  // Use shared wrapper if available (verifyAuthState) otherwise fall back to readRawCookies + validateRawCookies
-  try {
-    const { verifyAuthState } = await import('../../../../packages/shared/cursor-auth/src');
-    const { proof } = await verifyAuthState(chosenStateDir);
-    if (!proof.ok) throw new Error(`auth probe failed: status=${proof.status} reason=${proof.reason}`);
-  } catch (e) {
-    // If verifyAuthState isn't available for any reason, fallback to manual steps
-    const { readRawCookies } = await import('../../../../packages/shared/cursor-auth/src');
+  // Use shared wrapper verifyAuthState; fallback to manual validation if needed
+  const result = await verifyAuthState(chosenStateDir);
+  if (!result.proof?.ok) {
     const rawCookies = await readRawCookies(chosenStateDir);
     const proof = await validateRawCookies(rawCookies);
     if (!proof.ok) throw new Error(`auth probe failed: status=${proof.status} reason=${proof.reason}`);
@@ -126,18 +123,50 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
   const now = new Date();
   console.log('runScrape: captured count=', captured.length);
   for (const item of captured) {
-    const gz = await gzipBuffer(item.payload);
-    const blob = await prisma.rawBlob.create({
-      data: {
-        captured_at: now,
-        kind: item.kind,
-        url: item.url,
-        payload: gz,
-      },
-      select: { id: true },
-    });
-    saved += 1;
-    console.log('runScrape: saved one blob, id=', blob.id, 'kind=', item.kind);
+    // compute content hash (pre-gzip) for dedup
+    const contentHash = createHash('sha256').update(item.payload).digest('hex');
+    const existing = await (prisma as any).rawBlob.findFirst({ where: { content_hash: contentHash }, select: { id: true } });
+
+    // Always parse and attempt snapshot creation, even if duplicate blob content
+    let parsedPayload: unknown = null;
+    if (item.kind === 'network_json') {
+      try { parsedPayload = JSON.parse(item.payload.toString('utf8')); } catch { parsedPayload = null; }
+    } else if (item.kind === 'html') {
+      // TODO: implement CSV->normalized mapping; for now, skip snapshot for html
+      parsedPayload = null;
+    }
+
+    let blobId: string | null = null;
+    if (!existing) {
+      const gz = await gzipBuffer(item.payload);
+      const blob = await (prisma as any).rawBlob.create({
+        data: {
+          captured_at: now,
+          kind: item.kind,
+          url: item.url,
+          payload: gz,
+          content_hash: contentHash,
+          content_type: item.kind === 'html' ? 'text/csv' : 'application/json',
+          schema_version: 'v1',
+        },
+        select: { id: true },
+      });
+      saved += 1;
+      blobId = blob.id;
+      console.log('runScrape: saved one blob, id=', blob.id, 'kind=', item.kind);
+    } else {
+      blobId = existing.id;
+      console.log('runScrape: duplicate content detected, using existing blob id=', blobId);
+    }
+
+    if (parsedPayload) {
+      try {
+        const res = await createSnapshotIfChanged({ payload: parsedPayload, capturedAt: now, rawBlobId: blobId });
+        console.log('runScrape: snapshot result', res);
+      } catch (e) {
+        console.warn('runScrape: snapshot creation failed', e);
+      }
+    }
   }
   await trimRawBlobs(keepN);
   return saved;
