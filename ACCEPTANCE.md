@@ -7,7 +7,7 @@ The project is considered complete when all the following pass.
 ## Data Acquisition (HTTP CSV, Node)
 - [x] Authentication verified by HTTP request to `usage-summary` using stored cookies; key fields present.
 - [x] Hourly scraping downloads **CSV export** via authenticated HTTP and persists raw blob.
-- [ ] CSV → normalized rows mapping implemented and produces **normalized output**.
+- [x] CSV → normalized rows mapping implemented and produces **normalized output**.
 - [x] **Change detection** works: no duplicate snapshots for identical data (hash unchanged).
 - [ ] CSV ingestion failures **log an error**, enqueue an **alert**, and a notifier email is sent.
 

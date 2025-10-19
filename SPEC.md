@@ -5,7 +5,7 @@ This application tracks usage data from the Cursor Pro “Usage” page for user
 
 **Primary stack (2025):**
 - **TypeScript** throughout.
-- **Scraper & Workers:** Node.js + **Playwright** + **BullMQ** (Redis).
+- **Scraper & Workers:** Node.js + **BullMQ** (Redis). (Acquisition uses HTTP CSV export; Playwright is optional.)
 - **Web App / API:** **Next.js (App Router)** on Node (Server Components + Route Handlers + Server Actions).
 - **Database:** **PostgreSQL** (managed preferred: Neon/Supabase/RDS).
 - **ORM:** **Prisma** (migrations + typed client).
@@ -41,8 +41,8 @@ This application tracks usage data from the Cursor Pro “Usage” page for user
 - Preferred: **BullMQ repeatable jobs** scheduled hourly (single leader worker).
 - Alternative: **Vercel Cron** hitting a protected API route that enqueues work.
 - Jobs:
-  - `scrape` (hourly) → download CSV & store raw rows; enqueue `aggregate`.
-  - `aggregate` (on‑demand after scrape) → compute materialized metrics & warm caches.
+  - `scrape` (hourly) → download CSV & store raw rows; currently the scraper performs inline snapshot creation.
+  - `aggregate` (on‑demand after scrape) → compute materialized metrics & warm caches. (Planned; snapshot creation is inline today.)
   - `housekeeping` (daily) → rotate logs and trim raw blob retention.
 
 ---
