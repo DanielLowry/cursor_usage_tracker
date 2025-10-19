@@ -22,10 +22,23 @@ import { stableHash } from '../../../../packages/shared/hash/src';
 import { createHash } from 'crypto';
 import { parse as parseCsv } from 'csv-parse/sync';
 
-// Export a lazy-initialized queue to avoid runtime ordering issues when this
-// module is imported by the scheduler or when the worker runs in different
-// execution contexts. The scheduler expects a `scraperQueue` with an `.add`
-// method, so expose an instance created from the shared redis connection.
+/**
+ * Module: scraper
+ *
+ * Responsibilities:
+ * - Expose a BullMQ `scraperQueue` for the scheduler/worker to enqueue scrape jobs
+ * - Orchestrate an authenticated fetch of Cursor usage CSVs
+ * - Persist raw captures as gzipped `raw_blob` records and enforce retention
+ * - Normalize captured payloads into usage events and create snapshots (via DB helpers)
+ *
+ * High-level flow (runScrape):
+ * 1. Parse environment and resolve an auth state directory
+ * 2. Ensure Cursor authentication state is valid (cookies + session)
+ * 3. Fetch the usage CSV using authenticated headers
+ * 4. Persist the CSV as a raw blob (dedupe by content_hash), parse/normalize it,
+ *    compute a stable view hash and create snapshots/deltas in the DB
+ * 5. Trim old raw blobs according to retention policy
+ */
 const connection = getRedis();
 export const scraperQueue = new Queue('scraper', { connection });
 
@@ -46,7 +59,18 @@ export type ScrapeResult = {
   savedCount: number;
 };
 
-// Compress a Buffer using gzip and return the compressed Buffer
+/**
+ * Compress a Buffer using gzip and return the compressed Buffer.
+ *
+ * Input:
+ * - input: raw Buffer to compress
+ *
+ * Output:
+ * - Promise that resolves to the gzipped Buffer
+ *
+ * Notes:
+ * - Small wrapper around zlib.gzip that returns a Promise for convenience.
+ */
 function gzipBuffer(input: Buffer): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     zlib.gzip(input, (err, out) => (err ? reject(err) : resolve(out)));
@@ -54,6 +78,19 @@ function gzipBuffer(input: Buffer): Promise<Buffer> {
 }
 
 
+/**
+ * Perform an HTTP GET to `targetUrl` using headers produced by an `AuthSession`.
+ *
+ * Inputs:
+ * - authSession: AuthSession capable of producing valid HTTP headers for Cursor
+ * - targetUrl: URL to fetch
+ *
+ * Output:
+ * - Fetch Response object
+ *
+ * Side-effects:
+ * - Relies on `authSession.toHttpHeaders` which may refresh cookies/session as needed.
+ */
 async function fetchWithCursorCookies(authSession: AuthSession, targetUrl: string) {
   const headers = await authSession.toHttpHeaders(targetUrl);
   const res = await fetch(targetUrl, { method: 'GET', headers });
@@ -66,12 +103,33 @@ async function fetchWithCursorCookies(authSession: AuthSession, targetUrl: strin
 // - Downloads CSV export via authenticated fetch
 // - Persists raw CSV as compressed blob and enforces retention
 // Helpers extracted from runScrape for clarity and testability
+/**
+ * Read and validate environment variables used by the scraper.
+ *
+ * Returns a normalized object:
+ * - CURSOR_AUTH_STATE_DIR: string path to auth state directory
+ * - RAW_BLOB_KEEP_N: number indicating retention count for raw blobs
+ *
+ * Throws an Error if required environment variables are invalid.
+ */
 function parseEnv() {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) throw new Error(`Invalid env: ${parsed.error.message}`);
   return parsed.data as { CURSOR_AUTH_STATE_DIR: string; RAW_BLOB_KEEP_N: number };
 }
 
+/**
+ * Resolve the auth state directory to use.
+ *
+ * Strategy:
+ * 1. If `requestedStateDir/cursor.state.json` exists, return resolved `requestedStateDir`.
+ * 2. Otherwise walk up from CWD looking for workspace markers (pnpm-workspace.yaml, turbo.json, .git).
+ *    If found, look for `apps/web/data/cursor.state.json` under repo root and return it if present.
+ * 3. Fall back to the original requestedStateDir.
+ *
+ * This logic allows running the worker from different CWDs (local dev vs CI) while still
+ * finding the shared `apps/web/data` auth state when present.
+ */
 function resolveStateDir(requestedStateDir: string) {
   const requestedStatePath = path.join(path.resolve(requestedStateDir), 'cursor.state.json');
   if (fs.existsSync(requestedStatePath)) {
@@ -96,6 +154,18 @@ function resolveStateDir(requestedStateDir: string) {
   return requestedStateDir;
 }
 
+/**
+ * Ensure Cursor authentication state is available and valid.
+ *
+ * Steps:
+ * - Run `getAuthHeaders(chosenStateDir)` to trigger any side-effectful refreshes/logging
+ * - Construct an `AuthSession` and preview it (returns a short hash for logging)
+ * - Use `verifyAuthState` as the primary probe; if it indicates failure attempt manual
+ *   validation by reading raw cookies and running `validateRawCookies`.
+ *
+ * Returns:
+ * - a ready-to-use `AuthSession` instance or throws an Error if auth cannot be validated.
+ */
 async function ensureAuth(chosenStateDir: string) {
   // Preserve side-effect logging from getAuthHeaders
   await getAuthHeaders(chosenStateDir);
@@ -115,12 +185,45 @@ async function ensureAuth(chosenStateDir: string) {
   return authSession;
 }
 
+/**
+ * Fetch the usage CSV export from Cursor using an authenticated session.
+ *
+ * Inputs:
+ * - authSession: AuthSession used to sign the request
+ *
+ * Output:
+ * - Buffer containing the raw CSV bytes
+ *
+ * Throws:
+ * - Error when the HTTP response status is not 200
+ */
 async function fetchCsv(authSession: AuthSession) {
   const csvRes = await fetchWithCursorCookies(authSession, 'https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens');
   if (csvRes.status !== 200) throw new Error(`csv fetch failed: status=${csvRes.status}`);
   return Buffer.from(await csvRes.arrayBuffer());
 }
 
+/**
+ * Persist captured payloads and create snapshots/deltas from normalized events.
+ *
+ * Inputs:
+ * - captured: array of captured items where each item is { url?, payload: Buffer, kind }
+ *   - kind === 'html' indicates a CSV export; 'network_json' indicates an already-normalized JSON payload
+ * - keepN: number of raw blobs to retain (retention)
+ *
+ * Behavior:
+ * - For each item, compute a content hash (pre-gzip) and check for an existing `raw_blob`.
+ * - Parse the payload (CSV -> normalized JSON or JSON.parse).
+ * - If content is new, gzip and persist as `raw_blob` with provenance metadata.
+ * - Normalize payload into usage events using `mapNetworkJson`.
+ * - Compute a stable view hash and determine the billing period.
+ * - Find the latest existing capture for that billing period to compute delta events.
+ * - Call `createSnapshotWithDelta` to persist snapshot and delta usage events.
+ * - Trim raw blobs to `keepN` at the end.
+ *
+ * Returns:
+ * - number of newly created raw_blob records (saved)
+ */
 async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; kind: 'html' | 'network_json' }>, keepN: number) {
   let saved = 0;
   const now = new Date();
@@ -291,6 +394,18 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
   return saved;
 }
 
+/**
+ * Top-level scrape orchestration.
+ *
+ * Steps:
+ * - Parse env and resolve the auth state directory
+ * - Ensure authentication is valid
+ * - Fetch the CSV export
+ * - Package the CSV into a captured item and hand off to `persistCaptured`
+ *
+ * Returns:
+ * - ScrapeResult containing the number of newly persisted raw blobs
+ */
 export async function runScrape(): Promise<ScrapeResult> {
   const env = parseEnv();
   console.log('runScrape: env', { CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
@@ -323,6 +438,20 @@ export async function runScrape(): Promise<ScrapeResult> {
   return { savedCount: saved };
 }
 
+/**
+ * Test helper: ingest a list of fixtures as gzipped `raw_blob` records.
+ *
+ * Inputs:
+ * - fixtures: array of { url?, json } payloads
+ * - keepN: retention count to pass to `trimRawBlobs`
+ *
+ * Behavior:
+ * - For each fixture JSON, stringify, gzip, and create a `raw_blob` with kind `network_json`.
+ * - Calls `trimRawBlobs(keepN)` to enforce retention.
+ *
+ * Returns:
+ * - ScrapeResult with the number of fixtures persisted.
+ */
 export async function ingestFixtures(fixtures: Array<{ url?: string; json: unknown }>, keepN = 20): Promise<ScrapeResult> {
   let saved = 0;
   const now = new Date();
