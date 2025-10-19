@@ -1,7 +1,7 @@
 // Relative path: apps/web/app/api/explorer/raw-blobs/[id]/rows/route.ts
 
 import { NextResponse } from 'next/server';
-import prisma from '../../../../../../../packages/db/src/client';
+import prisma from '../../../../../../../../packages/db/src/client';
 import { gunzipBuffer, parseCsvPage } from '../../../../../../app/api/_utils/csv';
 
 function clamp(n: number, min: number, max: number) {
