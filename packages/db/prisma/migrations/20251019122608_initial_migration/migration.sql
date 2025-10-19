@@ -104,6 +104,9 @@ CREATE UNIQUE INDEX "usage_events_row_hash_key" ON "usage_events"("row_hash");
 -- CreateIndex
 CREATE INDEX "usage_events_captured_at_idx" ON "usage_events"("captured_at");
 
+-- Create unique composite index for deduplication by captured_at + total_tokens
+CREATE UNIQUE INDEX "usage_events_captured_at_total_tokens_key" ON "usage_events"("captured_at","total_tokens");
+
 -- CreateIndex
 CREATE INDEX "snapshots_captured_at_idx" ON "snapshots"("captured_at");
 

@@ -123,6 +123,12 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
   let saved = 0;
   const now = new Date();
   console.log('runScrape: captured count=', captured.length);
+  // Heuristic: only persist full raw CSV blobs once per calendar week (Monday 00:00 UTC).
+  // If the scrape doesn't run exactly at that time the weekly capture can be triggered
+  // by setting RAW_BLOB_FORCE_WEEKLY=true in the environment for testing.
+  const nowUtc = new Date();
+  const isWeeklyCapture = (process.env.RAW_BLOB_FORCE_WEEKLY === 'true') || (nowUtc.getUTCDay() === 1 && nowUtc.getUTCHours() === 0);
+
   for (const item of captured) {
     // compute content hash (pre-gzip) for dedup
     const contentHash = createHash('sha256').update(item.payload).digest('hex');
@@ -146,6 +152,7 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
           const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
           const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
           const rows = records.map((r) => ({
+            captured_at: new Date(String(r['Date'] || '')),
             model: String(r['Model'] || '').trim(),
             input_with_cache_write_tokens: Number(r['Input (w/ Cache Write)'] || 0),
             input_without_cache_write_tokens: Number(r['Input (w/o Cache Write)'] || 0),
@@ -167,7 +174,12 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
     }
 
     let blobId: string | null = null;
-    if (!existing) {
+    if (existing) {
+      // We know this content already exists in raw_blobs — reuse it for snapshot linking.
+      blobId = existing.id;
+      console.log('runScrape: duplicate content detected, using existing blob id=', blobId);
+    } else if (isWeeklyCapture) {
+      // Only persist new raw blobs during the weekly forensic capture to save storage.
       const gz = await gzipBuffer(item.payload);
       const blob = await (prisma as any).rawBlob.create({
         data: {
@@ -183,14 +195,17 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
       });
       saved += 1;
       blobId = blob.id;
-      console.log('runScrape: saved one blob, id=', blob.id, 'kind=', item.kind);
+      console.log('runScrape: saved weekly blob, id=', blob.id, 'kind=', item.kind);
     } else {
-      blobId = existing.id;
-      console.log('runScrape: duplicate content detected, using existing blob id=', blobId);
+      // Not weekly and content is new — do not persist the full CSV blob to save space.
+      // parsedPayload will still be processed to create snapshots/events as needed.
+      console.log('runScrape: skipping raw blob storage for non-weekly capture (new content)');
     }
 
     if (parsedPayload) {
       try {
+        // For regular scrapes we do not attach raw_blob_id to every row.
+        // Only pass rawBlobId when this persist corresponds to a weekly forensic capture.
         const res = await createSnapshotIfChanged({ payload: parsedPayload, capturedAt: now, rawBlobId: blobId });
         console.log('runScrape: snapshot result', res);
       } catch (e) {

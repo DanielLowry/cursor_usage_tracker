@@ -15,6 +15,7 @@ const usageRowSchema = z.object({
   output_tokens: z.number().int().nonnegative().optional(),
   total_tokens: z.number().int().nonnegative().optional(),
   api_cost: z.union([z.string(), z.number()]).optional(),
+  cost_to_you: z.union([z.string(), z.number()]).optional(),
 });
 
 const payloadSchema = z.object({
@@ -34,6 +35,8 @@ export type NormalizedUsageEvent = {
   total_tokens: number;
   api_cost_cents: number;
   api_cost_raw?: string | null;
+  cost_to_you_cents: number;
+  cost_to_you_raw?: string | null;
   billing_period_start: Date | null;
   billing_period_end: Date | null;
   source: 'network_json';
@@ -53,6 +56,8 @@ export function mapNetworkJson(raw: unknown, capturedAt: Date, rawBlobId?: strin
     const total = r.total_tokens ?? inputWithCache + inputWithoutCache + cacheRead + output;
     const apiRaw = r.api_cost ?? '';
     const apiCents = parseCurrencyToCents(apiRaw ?? 0);
+    const costToYouRaw = (r as any).cost_to_you ?? (r as any).cost_to_you ?? '';
+    const costToYouCents = parseCurrencyToCents(costToYouRaw ?? 0);
 
     return {
       captured_at: new Date(capturedAt),
@@ -66,6 +71,8 @@ export function mapNetworkJson(raw: unknown, capturedAt: Date, rawBlobId?: strin
       total_tokens: parseIntSafe(total),
       api_cost_cents: apiCents,
       api_cost_raw: String(apiRaw ?? '') || null,
+      cost_to_you_cents: costToYouCents,
+      cost_to_you_raw: String(costToYouRaw ?? '') || null,
       billing_period_start: start,
       billing_period_end: end,
       source: 'network_json',
