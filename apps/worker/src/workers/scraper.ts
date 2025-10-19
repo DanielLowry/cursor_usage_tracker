@@ -4,8 +4,8 @@
 import prisma from '../../../../packages/db/src/client';
 import { trimRawBlobs } from '../../../../packages/db/src/retention';
 // Cursor authentication state management
-import { getAuthHeaders } from '../../../../packages/shared/cursor-auth/src';
-import { AuthSession, CursorAuthState } from '../../../../packages/shared/cursor-auth/src/AuthSession';
+import { getAuthHeaders, validateRawCookies } from '../../../../packages/shared/cursor-auth/src';
+import { AuthSession } from '../../../../packages/shared/cursor-auth/src/AuthSession';
 // Env validation
 import { z } from 'zod';
 // gzip helper for storing compressed payloads
@@ -113,26 +113,21 @@ export async function runScrape(): Promise<ScrapeResult> {
   }
 
   // Build cookie header from shared canonical state (this will emit readRawCookies + getAuthHeaders logs)
-  const headers = await getAuthHeaders(chosenStateDir);
-  const cookieHeader = headers['Cookie'] || null;
+  await getAuthHeaders(chosenStateDir);
 
-  // Also log the preview hash for parity with previous behavior
+  // Also log the preview hash for parity with previous behavior and create an AuthSession
   const authSession = new AuthSession(chosenStateDir);
   const { hash } = await authSession.preview();
   console.log('runScrape: auth session hash:', hash);
 
-
-  // Pre-auth probe: usage-summary
-  const usageRes = await fetchWithCursorCookies(authSession, 'https://cursor.com/api/usage-summary');
-  const usageContentType = (usageRes.headers.get('content-type') || '').toLowerCase();
-  let usageJson: any = null;
-  try { usageJson = await usageRes.json(); } catch { /* ignore */ }
-  const usageStatus = usageRes.status;
-  const usageKeys = usageJson && typeof usageJson === 'object' && !Array.isArray(usageJson) ? Object.keys(usageJson) : [];
-  const required = ['billingCycleStart', 'billingCycleEnd', 'membershipType'];
-  const hasRequired = required.every(k => usageJson && k in usageJson);
-  if (usageStatus !== 200 || !/application\/json/.test(usageContentType) || !hasRequired) {
-    throw new Error(`auth probe failed: status=${usageStatus} ct=${usageContentType} keys=${usageKeys.join(',')}`);
+  // Pre-auth probe: reuse shared validateRawCookies helper which encapsulates the
+  // usage-summary fetch and validation logic.
+  // readRawCookies returns a Promise, so await it before passing to validateRawCookies
+  const { readRawCookies } = await import('../../../../packages/shared/cursor-auth/src');
+  const rawCookies = await readRawCookies(chosenStateDir);
+  const cookiesValidation = await validateRawCookies(rawCookies);
+  if (!cookiesValidation.ok) {
+    throw new Error(`auth probe failed: status=${cookiesValidation.status} reason=${cookiesValidation.reason}`);
   }
 
   // Fetch CSV export directly using same Cookie header
