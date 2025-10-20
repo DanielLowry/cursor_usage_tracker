@@ -237,6 +237,19 @@ This repository provides a small web app (`@cursor-usage/web`) and a worker (`@c
 - Row-level: `usage_events.row_hash` (sha256 of normalized salient fields) avoids duplicate usage rows across re-ingestions.
 - Snapshot-level: stable table hash per billing period prevents duplicate snapshots when nothing changed.
 
+## Glossary (quick reference)
+
+- **raw_blob**: Immutable stored capture of the original payload (gzipped bytes) with provenance metadata. Stored in `raw_blobs.payload` with `content_hash` used for deduplication.
+- **payload**: The raw bytes fetched from Cursor (CSV text or JSON) before gzip compression.
+- **normalizedEvents / usage_events**: Rows produced by `mapNetworkJson` — normalized usage records used to build snapshots and insert into the `usage_events` table.
+- **billing period**: The start/end date range (YYYY-MM-DD) covering events in a capture; used to group snapshots.
+- **stable view / tableHash**: Deterministic representation of a billing period's table (billing bounds + ordered row summaries) hashed via `stableHash` to detect changes.
+- **row_hash**: Stable per-row hash used by `usage_events` to dedupe identical rows across re-ingestions.
+- **snapshot**: Materialized record representing a `tableHash` for a billing period; persisted when the stable view changes.
+- **delta**: The set of `normalizedEvents` newer than the latest existing `captured_at` for the billing period; only the delta is inserted to avoid re-inserting previous rows.
+- **createSnapshotWithDelta**: DB helper that persists snapshot metadata and inserts delta `usage_events` for a capture.
+- **trimRawBlobs**: Retention helper that keeps only the newest N `raw_blob` records and deletes older ones.
+
 ## Summary API
 
 - Route: `apps/web/app/api/summary-min/route.ts` returns:

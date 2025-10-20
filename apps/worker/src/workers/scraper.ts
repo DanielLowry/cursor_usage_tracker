@@ -38,6 +38,32 @@ import { parse as parseCsv } from 'csv-parse/sync';
  * 4. Persist the CSV as a raw blob (dedupe by content_hash), parse/normalize it,
  *    compute a stable view hash and create snapshots/deltas in the DB
  * 5. Trim old raw blobs according to retention policy
+ *
+ * Glossary (high-level, quick reference):
+ * - `raw_blob`: Immutable stored capture of the original payload (gzipped bytes) with
+ *   provenance metadata. The `content_hash` (sha256 of pre-gzip bytes) is used to
+ *   deduplicate identical captures.
+ * - `payload`: The raw bytes fetched from Cursor (CSV text or JSON) before gzip.
+ * - `normalizedEvents` / `usage_events`: Rows produced by `mapNetworkJson` — normalized,
+ *   strongly-typed usage records derived from `payload` and used to build snapshots.
+ * - `billing period`: The start/end date range (YYYY-MM-DD) covering events in a capture.
+ * - `stable view` / `tableHash`: A deterministic representation (billing period + ordered
+ *   row summaries) hashed via `stableHash` to detect when the tabular view changed.
+ * - `row_hash`: Stable per-row hash used by `usage_events` to dedupe identical rows.
+ * - `snapshot`: A materialized, idempotent record representing a tableHash for a billing
+ *   period; used to detect changes and store deltas.
+ * - `delta`: The set of `normalizedEvents` newer than the latest existing `captured_at`
+ *   for the billing period. Only deltas are persisted to avoid re-inserting previously
+ *   persisted rows.
+ * - `createSnapshotWithDelta`: DB helper that persists snapshot metadata and inserts
+ *   delta `usage_events` for a capture.
+ * - `trimRawBlobs`: Retention helper that keeps only the newest N `raw_blob` records.
+ *
+ * Notes:
+ * - The scraper intentionally separates immutable raw captures (`raw_blob`) from the
+ *   normalized rows/snapshots used by the UI so reprocessing is possible without losing
+ *   auditability. The code in this file implements dedupe at multiple layers: blob-level
+ *   (`content_hash`), row-level (`row_hash`), and snapshot-level (`tableHash`).
  */
 const connection = getRedis();
 export const scraperQueue = new Queue('scraper', { connection });
@@ -229,6 +255,136 @@ async function fetchCsv(authSession: AuthSession) {
  * Returns:
  * - number of newly created raw_blob records (saved)
  */
+/**
+ * Parse a captured item payload into the normalized payload shape expected by `mapNetworkJson`.
+ * Exported for testability.
+ */
+export function parseCapturedPayload(item: { url?: string; payload: Buffer; kind: 'html' | 'network_json' }) {
+  if (item.kind === 'network_json') {
+    try { return JSON.parse(item.payload.toString('utf8')); } catch { return null; }
+  }
+  try {
+    const csvText = item.payload.toString('utf8');
+    const records: Array<Record<string, string>> = parseCsv(csvText, { columns: true, skip_empty_lines: true, trim: true });
+    if (records.length === 0) return { billing_period: undefined, rows: [] } as unknown;
+    const iso = records[0]['Date'];
+    const d = new Date(iso);
+    const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
+    const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+    const rows = records.map((r) => ({
+      captured_at: new Date(String(r['Date'] || '')),
+      model: String(r['Model'] || '').trim(),
+      input_with_cache_write_tokens: Number(r['Input (w/ Cache Write)'] || 0),
+      input_without_cache_write_tokens: Number(r['Input (w/o Cache Write)'] || 0),
+      cache_read_tokens: Number(r['Cache Read'] || 0),
+      output_tokens: Number(r['Output Tokens'] || 0),
+      total_tokens: Number(r['Total Tokens'] || 0),
+      api_cost: (r['Cost'] ?? r['cost'] ?? r['API Cost'] ?? r['Api Cost'] ?? '') as unknown as string,
+      cost_to_you: (r['Cost to you'] ?? r['cost_to_you'] ?? r['Cost to you (you)'] ?? '') as unknown as string,
+    }));
+    return { billing_period: { start, end }, rows } as unknown;
+  } catch (e) {
+    console.warn('runScrape: CSV parse failed', e);
+    return null;
+  }
+}
+
+/**
+ * Build a stable view and compute the table hash. Exported for testability.
+ */
+export function buildStableViewHash(normalizedEvents: any[]) {
+  const sortedEvents = [...normalizedEvents].sort((a, b) => {
+    if (a.model !== b.model) return a.model.localeCompare(b.model);
+    return a.total_tokens - b.total_tokens;
+  });
+  const firstEvent = sortedEvents[0];
+  const billingPeriod = {
+    start: firstEvent?.billing_period_start ? firstEvent.billing_period_start.toISOString().split('T')[0] : null,
+    end: firstEvent?.billing_period_end ? firstEvent.billing_period_end.toISOString().split('T')[0] : null,
+  };
+  const rowsForHash = sortedEvents.map((e: any) => ({
+    model: e.model,
+    kind: e.kind,
+    max_mode: e.max_mode ?? null,
+    input_with_cache_write_tokens: e.input_with_cache_write_tokens,
+    input_without_cache_write_tokens: e.input_without_cache_write_tokens,
+    cache_read_tokens: e.cache_read_tokens,
+    output_tokens: e.output_tokens,
+    total_tokens: e.total_tokens,
+    api_cost_cents: e.api_cost_cents,
+    api_cost_raw: (e as any).api_cost_raw ?? null,
+    cost_to_you_cents: (e as any).cost_to_you_cents ?? null,
+  }));
+  const stableView = { billing_period: billingPeriod, rows: rowsForHash };
+  const tableHash = stableHash(stableView);
+  const billingStart = firstEvent?.billing_period_start ?? null;
+  const billingEnd = firstEvent?.billing_period_end ?? null;
+  return { tableHash, billingStart, billingEnd, totalRowsCount: normalizedEvents.length };
+}
+
+/**
+ * Persist blob if not existing and return blob id (may reuse existing). Exported for testing/mocking.
+ */
+export async function ensureBlob(item: { url?: string; payload: Buffer; kind: 'html' | 'network_json' }, contentHash: string, nowTs?: Date) {
+  const nowLocal = nowTs ?? new Date();
+  const existing = await prisma.rawBlob.findFirst({ where: { content_hash: contentHash }, select: { id: true } });
+  if (existing) {
+    console.log('runScrape: duplicate content detected, using existing blob id=', existing.id);
+    return existing.id as string;
+  }
+  const gz = await gzipBuffer(item.payload);
+  const blob = await prisma.rawBlob.create({
+    data: {
+      captured_at: nowLocal,
+      kind: item.kind,
+      url: item.url,
+      payload: gz,
+      content_hash: contentHash,
+      content_type: item.kind === 'html' ? 'text/csv' : 'application/json',
+      schema_version: 'v1',
+      metadata: {
+        provenance: {
+          method: 'http_csv',
+          url: item.url ?? null,
+          fetched_at: nowLocal.toISOString(),
+          size_bytes: item.payload.length,
+        },
+      },
+    },
+    select: { id: true },
+  });
+  console.log('runScrape: saved raw blob, id=', blob.id, 'kind=', item.kind);
+  return blob.id;
+}
+
+/**
+ * Find latest existing capture timestamp for a billing period. Exported for testing.
+ */
+export async function findMaxExistingCapture(billingStart: Date | null, billingEnd: Date | null) {
+  if (!billingStart || !billingEnd) return null;
+  try {
+    const latestSnapshot = await (prisma as any).snapshot.findFirst({
+      where: { billing_period_start: billingStart, billing_period_end: billingEnd },
+      orderBy: { captured_at: 'desc' },
+      select: { captured_at: true },
+    });
+    if (latestSnapshot) return latestSnapshot.captured_at as Date;
+  } catch (err) {
+    try {
+      const latest = await (prisma as any).usageEvent.findFirst({
+        where: { billing_period_start: billingStart, billing_period_end: billingEnd },
+        orderBy: { captured_at: 'desc' },
+        select: { captured_at: true },
+      });
+      if (latest) return latest.captured_at as Date;
+    } catch (err2) {
+      console.warn('runScrape: failed to determine latest existing capture for billing period', err, err2);
+      return null;
+    }
+  }
+  return null;
+}
+
 async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; kind: 'html' | 'network_json' }>, keepN: number) {
   let saved = 0;
   const now = new Date();
@@ -239,160 +395,162 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
   const nowUtc = new Date();
   const isWeeklyCapture = (process.env.RAW_BLOB_FORCE_WEEKLY === 'true') || (nowUtc.getUTCDay() === 1 && nowUtc.getUTCHours() === 0);
 
-  for (const item of captured) {
-    // compute content hash (pre-gzip) for dedup
-    const contentHash = createHash('sha256').update(item.payload).digest('hex');
-    const existing = await (prisma as any).rawBlob.findFirst({ where: { content_hash: contentHash }, select: { id: true } });
-
-    // Always parse and attempt snapshot creation, even if duplicate blob content
-    let parsedPayload: unknown = null;
+  // Parse payload into the internal normalized payload shape expected by mapNetworkJson
+  function parsePayload(item: { url?: string; payload: Buffer; kind: 'html' | 'network_json' }) {
     if (item.kind === 'network_json') {
       console.log('runScrape: parsing network json');
-      try { parsedPayload = JSON.parse(item.payload.toString('utf8')); } catch { parsedPayload = null; }
-    } else if (item.kind === 'html') {
-      console.log('runScrape: parsing CSV');
-      // CSV -> normalized payload expected by mapNetworkJson
-      try {
-        const csvText = item.payload.toString('utf8');
-        const records: Array<Record<string, string>> = parseCsv(csvText, { columns: true, skip_empty_lines: true, trim: true });
-        if (records.length > 0) {
-          // Determine billing period from first row Date
-          const iso = records[0]['Date'];
-          const d = new Date(iso);
-          const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
-          const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
-          const rows = records.map((r) => ({
-            captured_at: new Date(String(r['Date'] || '')),
-            model: String(r['Model'] || '').trim(),
-            input_with_cache_write_tokens: Number(r['Input (w/ Cache Write)'] || 0),
-            input_without_cache_write_tokens: Number(r['Input (w/o Cache Write)'] || 0),
-            cache_read_tokens: Number(r['Cache Read'] || 0),
-            output_tokens: Number(r['Output Tokens'] || 0),
-            total_tokens: Number(r['Total Tokens'] || 0),
-            // New CSV with ?strategy=tokens exposes 'Cost' which we map to api_cost
-            api_cost: (r['Cost'] ?? r['cost'] ?? r['API Cost'] ?? r['Api Cost'] ?? '') as unknown as string,
-            cost_to_you: (r['Cost to you'] ?? r['cost_to_you'] ?? r['Cost to you (you)'] ?? '') as unknown as string,
-          }));
-          parsedPayload = { billing_period: { start, end }, rows } as unknown;
-        } else {
-          parsedPayload = { billing_period: undefined, rows: [] } as unknown;
-        }
-      } catch (e) {
-        console.warn('runScrape: CSV parse failed', e);
-        parsedPayload = null;
-      }
+      try { return JSON.parse(item.payload.toString('utf8')); } catch { return null; }
     }
+    // html -> CSV
+    console.log('runScrape: parsing CSV');
+    try {
+      const csvText = item.payload.toString('utf8');
+      const records: Array<Record<string, string>> = parseCsv(csvText, { columns: true, skip_empty_lines: true, trim: true });
+      if (records.length === 0) return { billing_period: undefined, rows: [] } as unknown;
+      const iso = records[0]['Date'];
+      const d = new Date(iso);
+      const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
+      const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+      const rows = records.map((r) => ({
+        captured_at: new Date(String(r['Date'] || '')),
+        model: String(r['Model'] || '').trim(),
+        input_with_cache_write_tokens: Number(r['Input (w/ Cache Write)'] || 0),
+        input_without_cache_write_tokens: Number(r['Input (w/o Cache Write)'] || 0),
+        cache_read_tokens: Number(r['Cache Read'] || 0),
+        output_tokens: Number(r['Output Tokens'] || 0),
+        total_tokens: Number(r['Total Tokens'] || 0),
+        api_cost: (r['Cost'] ?? r['cost'] ?? r['API Cost'] ?? r['Api Cost'] ?? '') as unknown as string,
+        cost_to_you: (r['Cost to you'] ?? r['cost_to_you'] ?? r['Cost to you (you)'] ?? '') as unknown as string,
+      }));
+      return { billing_period: { start, end }, rows } as unknown;
+    } catch (e) {
+      console.warn('runScrape: CSV parse failed', e);
+      return null;
+    }
+  }
 
-    let blobId: string | null = null;
+  // Persist blob if not existing and return blob id (may reuse existing)
+  async function ensureBlob(item: { url?: string; payload: Buffer; kind: 'html' | 'network_json' }, contentHash: string) {
+    const existing = await (prisma as any).rawBlob.findFirst({ where: { content_hash: contentHash }, select: { id: true } });
     if (existing) {
-      // Existing content: reuse for snapshot linking.
-      blobId = existing.id;
-      console.log('runScrape: duplicate content detected, using existing blob id=', blobId);
-    } else {
-      // Persist any new raw content (gzip + provenance). Let content_hash decide de-duplication.
-      const gz = await gzipBuffer(item.payload);
-      const blob = await (prisma as any).rawBlob.create({
-        data: {
-          captured_at: now,
-          kind: item.kind,
-          url: item.url,
-          payload: gz,
-          content_hash: contentHash,
-          content_type: item.kind === 'html' ? 'text/csv' : 'application/json',
-          schema_version: 'v1',
-          metadata: {
-            provenance: {
-              method: 'http_csv',
-              url: item.url ?? null,
-              fetched_at: now.toISOString(),
-              size_bytes: item.payload.length,
-            },
+      console.log('runScrape: duplicate content detected, using existing blob id=', existing.id);
+      return existing.id as string;
+    }
+    const gz = await gzipBuffer(item.payload);
+    const blob = await (prisma as any).rawBlob.create({
+      data: {
+        captured_at: now,
+        kind: item.kind,
+        url: item.url,
+        payload: gz,
+        content_hash: contentHash,
+        content_type: item.kind === 'html' ? 'text/csv' : 'application/json',
+        schema_version: 'v1',
+        metadata: {
+          provenance: {
+            method: 'http_csv',
+            url: item.url ?? null,
+            fetched_at: now.toISOString(),
+            size_bytes: item.payload.length,
           },
         },
-        select: { id: true },
+      },
+      select: { id: true },
+    });
+    saved += 1;
+    console.log('runScrape: saved raw blob, id=', blob.id, 'kind=', item.kind);
+    return blob.id;
+  }
+
+  // Build stable view hash and determine billing start/end
+  function buildStableViewAndHash(normalizedEvents: any[]) {
+    const sortedEvents = [...normalizedEvents].sort((a, b) => {
+      if (a.model !== b.model) return a.model.localeCompare(b.model);
+      return a.total_tokens - b.total_tokens;
+    });
+    const firstEvent = sortedEvents[0];
+    const billingPeriod = {
+      start: firstEvent?.billing_period_start ? firstEvent.billing_period_start.toISOString().split('T')[0] : null,
+      end: firstEvent?.billing_period_end ? firstEvent.billing_period_end.toISOString().split('T')[0] : null,
+    };
+    const rowsForHash = sortedEvents.map((e: any) => ({
+      model: e.model,
+      kind: e.kind,
+      max_mode: e.max_mode ?? null,
+      input_with_cache_write_tokens: e.input_with_cache_write_tokens,
+      input_without_cache_write_tokens: e.input_without_cache_write_tokens,
+      cache_read_tokens: e.cache_read_tokens,
+      output_tokens: e.output_tokens,
+      total_tokens: e.total_tokens,
+      api_cost_cents: e.api_cost_cents,
+      api_cost_raw: (e as any).api_cost_raw ?? null,
+      cost_to_you_cents: (e as any).cost_to_you_cents ?? null,
+    }));
+    const stableView = { billing_period: billingPeriod, rows: rowsForHash };
+    const tableHash = stableHash(stableView);
+    const billingStart = firstEvent?.billing_period_start ?? null;
+    const billingEnd = firstEvent?.billing_period_end ?? null;
+    return { tableHash, billingStart, billingEnd, totalRowsCount: normalizedEvents.length };
+  }
+
+  // Find latest existing capture timestamp for a billing period
+  async function findMaxExistingCapture(billingStart: Date | null, billingEnd: Date | null) {
+    let maxExisting: Date | null = null;
+    if (!billingStart || !billingEnd) return null;
+    try {
+      const latestSnapshot = await (prisma as any).snapshot.findFirst({
+        where: { billing_period_start: billingStart, billing_period_end: billingEnd },
+        orderBy: { captured_at: 'desc' },
+        select: { captured_at: true },
       });
-      saved += 1;
-      blobId = blob.id;
-      console.log('runScrape: saved raw blob, id=', blob.id, 'kind=', item.kind);
-    }
-
-    if (parsedPayload) {
+      if (latestSnapshot) return latestSnapshot.captured_at as Date;
+    } catch (err) {
       try {
-        // Normalize payload into usage events
-        const normalizedEvents = mapNetworkJson(parsedPayload, now, blobId ?? null);
-
-        // Build stable view (same logic as snapshots.buildStableView)
-        const sortedEvents = [...normalizedEvents].sort((a, b) => {
-          if (a.model !== b.model) return a.model.localeCompare(b.model);
-          return a.total_tokens - b.total_tokens;
+        const latest = await (prisma as any).usageEvent.findFirst({
+          where: { billing_period_start: billingStart, billing_period_end: billingEnd },
+          orderBy: { captured_at: 'desc' },
+          select: { captured_at: true },
         });
-        const firstEvent = sortedEvents[0];
-        const billingPeriod = {
-          start: firstEvent?.billing_period_start ? firstEvent.billing_period_start.toISOString().split('T')[0] : null,
-          end: firstEvent?.billing_period_end ? firstEvent.billing_period_end.toISOString().split('T')[0] : null,
-        };
-        const rowsForHash = sortedEvents.map((e: any) => ({
-          model: e.model,
-          kind: e.kind,
-          max_mode: e.max_mode ?? null,
-          input_with_cache_write_tokens: e.input_with_cache_write_tokens,
-          input_without_cache_write_tokens: e.input_without_cache_write_tokens,
-          cache_read_tokens: e.cache_read_tokens,
-          output_tokens: e.output_tokens,
-          total_tokens: e.total_tokens,
-          api_cost_cents: e.api_cost_cents,
-          api_cost_raw: (e as any).api_cost_raw ?? null,
-          cost_to_you_cents: (e as any).cost_to_you_cents ?? null,
-        }));
-        const stableView = { billing_period: billingPeriod, rows: rowsForHash };
-        const tableHash = stableHash(stableView);
-
-        // Determine billing period bounds as Date objects (or null)
-        const billingStart = firstEvent?.billing_period_start ?? null;
-        const billingEnd = firstEvent?.billing_period_end ?? null;
-
-        // Find latest existing captured_at for this billing period to compute delta.
-        // Use the `snapshot` table which tracks captures per billing period (and is
-        // the authoritative source for when a particular table_hash was captured).
-        let maxExisting: Date | null = null;
-        if (billingStart && billingEnd) {
-          try {
-            const latestSnapshot = await (prisma as any).snapshot.findFirst({
-              where: { billing_period_start: billingStart, billing_period_end: billingEnd },
-              orderBy: { captured_at: 'desc' },
-              select: { captured_at: true },
-            });
-            if (latestSnapshot) maxExisting = latestSnapshot.captured_at as Date;
-          } catch (err) {
-            // Fallback: if snapshot lookup fails for any reason, try usage_events
-            try {
-              const latest = await (prisma as any).usageEvent.findFirst({
-                where: { billing_period_start: billingStart, billing_period_end: billingEnd },
-                orderBy: { captured_at: 'desc' },
-                select: { captured_at: true },
-              });
-              if (latest) maxExisting = latest.captured_at as Date;
-            } catch (err2) {
-              console.warn('runScrape: failed to determine latest existing capture for billing period', err, err2);
-              maxExisting = null;
-            }
-          }
-        }
-
-        const deltaEvents = maxExisting ? normalizedEvents.filter((e) => e.captured_at > maxExisting) : normalizedEvents;
-
-        const res = await createSnapshotWithDelta({
-          billingPeriodStart: billingStart,
-          billingPeriodEnd: billingEnd,
-          tableHash,
-          totalRowsCount: normalizedEvents.length,
-          capturedAt: now,
-          normalizedDeltaEvents: deltaEvents,
-        });
-        console.log('runScrape: snapshot result', res);
-      } catch (e) {
-        console.warn('runScrape: snapshot creation failed', e);
+        if (latest) return latest.captured_at as Date;
+      } catch (err2) {
+        console.warn('runScrape: failed to determine latest existing capture for billing period', err, err2);
+        return null;
       }
+    }
+    return maxExisting;
+  }
+
+  for (const item of captured) {
+    const contentHash = createHash('sha256').update(item.payload).digest('hex');
+
+    // Parse payload regardless of blob dedupe
+    const parsedPayload = parsePayload(item);
+
+    // Ensure blob exists (reuses existing or creates new)
+    const blobId = await ensureBlob(item, contentHash);
+
+    if (!parsedPayload) continue;
+
+    try {
+      const normalizedEvents = mapNetworkJson(parsedPayload, now, blobId ?? null);
+
+      const { tableHash, billingStart, billingEnd, totalRowsCount } = buildStableViewAndHash(normalizedEvents);
+
+      const maxExisting = await findMaxExistingCapture(billingStart, billingEnd);
+
+      const deltaEvents = maxExisting ? normalizedEvents.filter((e) => e.captured_at > maxExisting) : normalizedEvents;
+
+      const res = await createSnapshotWithDelta({
+        billingPeriodStart: billingStart,
+        billingPeriodEnd: billingEnd,
+        tableHash,
+        totalRowsCount,
+        capturedAt: now,
+        normalizedDeltaEvents: deltaEvents,
+      });
+      console.log('runScrape: snapshot result', res);
+    } catch (e) {
+      console.warn('runScrape: snapshot creation failed', e);
     }
   }
   await trimRawBlobs(keepN);
