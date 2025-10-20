@@ -18,9 +18,10 @@ import { Queue } from 'bullmq';
 import { getRedis } from '@cursor-usage/redis';
 import { createSnapshotIfChanged, createSnapshotWithDelta } from '../../../../packages/db/src/snapshots';
 import { mapNetworkJson } from '../../../../packages/shared/ingest/src';
-import { stableHash } from '../../../../packages/shared/hash/src';
 import { createHash } from 'crypto';
-import { parse as parseCsv } from 'csv-parse/sync';
+import { computeDeltaEvents } from './scraper/core/delta';
+import { parseCapturedPayload } from './scraper/core/normalize';
+import { buildStableViewHash } from './scraper/core/tableHash';
 
 /**
  * Module: scraper
@@ -256,81 +257,18 @@ async function fetchCsv(authSession: AuthSession) {
  * - number of newly created raw_blob records (saved)
  */
 /**
- * Parse a captured item payload into the normalized payload shape expected by `mapNetworkJson`.
- * Exported for testability.
- */
-export function parseCapturedPayload(item: { url?: string; payload: Buffer; kind: 'html' | 'network_json' }) {
-  if (item.kind === 'network_json') {
-    try { return JSON.parse(item.payload.toString('utf8')); } catch { return null; }
-  }
-  try {
-    const csvText = item.payload.toString('utf8');
-    const records: Array<Record<string, string>> = parseCsv(csvText, { columns: true, skip_empty_lines: true, trim: true });
-    if (records.length === 0) return { billing_period: undefined, rows: [] } as unknown;
-    const iso = records[0]['Date'];
-    const d = new Date(iso);
-    const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
-    const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
-    const rows = records.map((r) => ({
-      captured_at: new Date(String(r['Date'] || '')),
-      model: String(r['Model'] || '').trim(),
-      input_with_cache_write_tokens: Number(r['Input (w/ Cache Write)'] || 0),
-      input_without_cache_write_tokens: Number(r['Input (w/o Cache Write)'] || 0),
-      cache_read_tokens: Number(r['Cache Read'] || 0),
-      output_tokens: Number(r['Output Tokens'] || 0),
-      total_tokens: Number(r['Total Tokens'] || 0),
-      api_cost: (r['Cost'] ?? r['cost'] ?? r['API Cost'] ?? r['Api Cost'] ?? '') as unknown as string,
-      cost_to_you: (r['Cost to you'] ?? r['cost_to_you'] ?? r['Cost to you (you)'] ?? '') as unknown as string,
-    }));
-    return { billing_period: { start, end }, rows } as unknown;
-  } catch (e) {
-    console.warn('runScrape: CSV parse failed', e);
-    return null;
-  }
-}
-
-/**
- * Build a stable view and compute the table hash. Exported for testability.
- */
-export function buildStableViewHash(normalizedEvents: any[]) {
-  const sortedEvents = [...normalizedEvents].sort((a, b) => {
-    if (a.model !== b.model) return a.model.localeCompare(b.model);
-    return a.total_tokens - b.total_tokens;
-  });
-  const firstEvent = sortedEvents[0];
-  const billingPeriod = {
-    start: firstEvent?.billing_period_start ? firstEvent.billing_period_start.toISOString().split('T')[0] : null,
-    end: firstEvent?.billing_period_end ? firstEvent.billing_period_end.toISOString().split('T')[0] : null,
-  };
-  const rowsForHash = sortedEvents.map((e: any) => ({
-    model: e.model,
-    kind: e.kind,
-    max_mode: e.max_mode ?? null,
-    input_with_cache_write_tokens: e.input_with_cache_write_tokens,
-    input_without_cache_write_tokens: e.input_without_cache_write_tokens,
-    cache_read_tokens: e.cache_read_tokens,
-    output_tokens: e.output_tokens,
-    total_tokens: e.total_tokens,
-    api_cost_cents: e.api_cost_cents,
-    api_cost_raw: (e as any).api_cost_raw ?? null,
-    cost_to_you_cents: (e as any).cost_to_you_cents ?? null,
-  }));
-  const stableView = { billing_period: billingPeriod, rows: rowsForHash };
-  const tableHash = stableHash(stableView);
-  const billingStart = firstEvent?.billing_period_start ?? null;
-  const billingEnd = firstEvent?.billing_period_end ?? null;
-  return { tableHash, billingStart, billingEnd, totalRowsCount: normalizedEvents.length };
-}
-
-/**
  * Persist blob if not existing and return blob id (may reuse existing). Exported for testing/mocking.
  */
-export async function ensureBlob(item: { url?: string; payload: Buffer; kind: 'html' | 'network_json' }, contentHash: string, nowTs?: Date) {
+export async function ensureBlob(
+  item: { url?: string; payload: Buffer; kind: 'html' | 'network_json' },
+  contentHash: string,
+  nowTs?: Date,
+): Promise<{ id: string; created: boolean }> {
   const nowLocal = nowTs ?? new Date();
   const existing = await prisma.rawBlob.findFirst({ where: { content_hash: contentHash }, select: { id: true } });
   if (existing) {
     console.log('runScrape: duplicate content detected, using existing blob id=', existing.id);
-    return existing.id as string;
+    return { id: existing.id as string, created: false };
   }
   const gz = await gzipBuffer(item.payload);
   const blob = await prisma.rawBlob.create({
@@ -354,7 +292,7 @@ export async function ensureBlob(item: { url?: string; payload: Buffer; kind: 'h
     select: { id: true },
   });
   console.log('runScrape: saved raw blob, id=', blob.id, 'kind=', item.kind);
-  return blob.id;
+  return { id: blob.id, created: true };
 }
 
 /**
@@ -393,152 +331,33 @@ async function persistCaptured(captured: Array<{ url?: string; payload: Buffer; 
   // If the scrape doesn't run exactly at that time the weekly capture can be triggered
   // by setting RAW_BLOB_FORCE_WEEKLY=true in the environment for testing.
   const nowUtc = new Date();
-  const isWeeklyCapture = (process.env.RAW_BLOB_FORCE_WEEKLY === 'true') || (nowUtc.getUTCDay() === 1 && nowUtc.getUTCHours() === 0);
-
-  // Parse payload into the internal normalized payload shape expected by mapNetworkJson
-  function parsePayload(item: { url?: string; payload: Buffer; kind: 'html' | 'network_json' }) {
-    if (item.kind === 'network_json') {
-      console.log('runScrape: parsing network json');
-      try { return JSON.parse(item.payload.toString('utf8')); } catch { return null; }
-    }
-    // html -> CSV
-    console.log('runScrape: parsing CSV');
-    try {
-      const csvText = item.payload.toString('utf8');
-      const records: Array<Record<string, string>> = parseCsv(csvText, { columns: true, skip_empty_lines: true, trim: true });
-      if (records.length === 0) return { billing_period: undefined, rows: [] } as unknown;
-      const iso = records[0]['Date'];
-      const d = new Date(iso);
-      const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10);
-      const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
-      const rows = records.map((r) => ({
-        captured_at: new Date(String(r['Date'] || '')),
-        model: String(r['Model'] || '').trim(),
-        input_with_cache_write_tokens: Number(r['Input (w/ Cache Write)'] || 0),
-        input_without_cache_write_tokens: Number(r['Input (w/o Cache Write)'] || 0),
-        cache_read_tokens: Number(r['Cache Read'] || 0),
-        output_tokens: Number(r['Output Tokens'] || 0),
-        total_tokens: Number(r['Total Tokens'] || 0),
-        api_cost: (r['Cost'] ?? r['cost'] ?? r['API Cost'] ?? r['Api Cost'] ?? '') as unknown as string,
-        cost_to_you: (r['Cost to you'] ?? r['cost_to_you'] ?? r['Cost to you (you)'] ?? '') as unknown as string,
-      }));
-      return { billing_period: { start, end }, rows } as unknown;
-    } catch (e) {
-      console.warn('runScrape: CSV parse failed', e);
-      return null;
-    }
-  }
-
-  // Persist blob if not existing and return blob id (may reuse existing)
-  async function ensureBlob(item: { url?: string; payload: Buffer; kind: 'html' | 'network_json' }, contentHash: string) {
-    const existing = await (prisma as any).rawBlob.findFirst({ where: { content_hash: contentHash }, select: { id: true } });
-    if (existing) {
-      console.log('runScrape: duplicate content detected, using existing blob id=', existing.id);
-      return existing.id as string;
-    }
-    const gz = await gzipBuffer(item.payload);
-    const blob = await (prisma as any).rawBlob.create({
-      data: {
-        captured_at: now,
-        kind: item.kind,
-        url: item.url,
-        payload: gz,
-        content_hash: contentHash,
-        content_type: item.kind === 'html' ? 'text/csv' : 'application/json',
-        schema_version: 'v1',
-        metadata: {
-          provenance: {
-            method: 'http_csv',
-            url: item.url ?? null,
-            fetched_at: now.toISOString(),
-            size_bytes: item.payload.length,
-          },
-        },
-      },
-      select: { id: true },
-    });
-    saved += 1;
-    console.log('runScrape: saved raw blob, id=', blob.id, 'kind=', item.kind);
-    return blob.id;
-  }
-
-  // Build stable view hash and determine billing start/end
-  function buildStableViewAndHash(normalizedEvents: any[]) {
-    const sortedEvents = [...normalizedEvents].sort((a, b) => {
-      if (a.model !== b.model) return a.model.localeCompare(b.model);
-      return a.total_tokens - b.total_tokens;
-    });
-    const firstEvent = sortedEvents[0];
-    const billingPeriod = {
-      start: firstEvent?.billing_period_start ? firstEvent.billing_period_start.toISOString().split('T')[0] : null,
-      end: firstEvent?.billing_period_end ? firstEvent.billing_period_end.toISOString().split('T')[0] : null,
-    };
-    const rowsForHash = sortedEvents.map((e: any) => ({
-      model: e.model,
-      kind: e.kind,
-      max_mode: e.max_mode ?? null,
-      input_with_cache_write_tokens: e.input_with_cache_write_tokens,
-      input_without_cache_write_tokens: e.input_without_cache_write_tokens,
-      cache_read_tokens: e.cache_read_tokens,
-      output_tokens: e.output_tokens,
-      total_tokens: e.total_tokens,
-      api_cost_cents: e.api_cost_cents,
-      api_cost_raw: (e as any).api_cost_raw ?? null,
-      cost_to_you_cents: (e as any).cost_to_you_cents ?? null,
-    }));
-    const stableView = { billing_period: billingPeriod, rows: rowsForHash };
-    const tableHash = stableHash(stableView);
-    const billingStart = firstEvent?.billing_period_start ?? null;
-    const billingEnd = firstEvent?.billing_period_end ?? null;
-    return { tableHash, billingStart, billingEnd, totalRowsCount: normalizedEvents.length };
-  }
-
-  // Find latest existing capture timestamp for a billing period
-  async function findMaxExistingCapture(billingStart: Date | null, billingEnd: Date | null) {
-    let maxExisting: Date | null = null;
-    if (!billingStart || !billingEnd) return null;
-    try {
-      const latestSnapshot = await (prisma as any).snapshot.findFirst({
-        where: { billing_period_start: billingStart, billing_period_end: billingEnd },
-        orderBy: { captured_at: 'desc' },
-        select: { captured_at: true },
-      });
-      if (latestSnapshot) return latestSnapshot.captured_at as Date;
-    } catch (err) {
-      try {
-        const latest = await (prisma as any).usageEvent.findFirst({
-          where: { billing_period_start: billingStart, billing_period_end: billingEnd },
-          orderBy: { captured_at: 'desc' },
-          select: { captured_at: true },
-        });
-        if (latest) return latest.captured_at as Date;
-      } catch (err2) {
-        console.warn('runScrape: failed to determine latest existing capture for billing period', err, err2);
-        return null;
-      }
-    }
-    return maxExisting;
-  }
-
   for (const item of captured) {
     const contentHash = createHash('sha256').update(item.payload).digest('hex');
 
     // Parse payload regardless of blob dedupe
-    const parsedPayload = parsePayload(item);
+    if (item.kind === 'network_json') {
+      console.log('runScrape: parsing network json');
+    } else {
+      console.log('runScrape: parsing CSV');
+    }
+    const parsedPayload = parseCapturedPayload(item);
 
     // Ensure blob exists (reuses existing or creates new)
-    const blobId = await ensureBlob(item, contentHash);
+    const { id: blobId, created } = await ensureBlob(item, contentHash, now);
+    if (created) {
+      saved += 1;
+    }
 
     if (!parsedPayload) continue;
 
     try {
       const normalizedEvents = mapNetworkJson(parsedPayload, now, blobId ?? null);
 
-      const { tableHash, billingStart, billingEnd, totalRowsCount } = buildStableViewAndHash(normalizedEvents);
+      const { tableHash, billingStart, billingEnd, totalRowsCount } = buildStableViewHash(normalizedEvents);
 
       const maxExisting = await findMaxExistingCapture(billingStart, billingEnd);
 
-      const deltaEvents = maxExisting ? normalizedEvents.filter((e) => e.captured_at > maxExisting) : normalizedEvents;
+      const deltaEvents = computeDeltaEvents(normalizedEvents, maxExisting);
 
       const res = await createSnapshotWithDelta({
         billingPeriodStart: billingStart,
