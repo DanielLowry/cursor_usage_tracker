@@ -6,7 +6,7 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/scripts/onboard.ts",
-    "src/workers/scraper.ts",
+    "src/workers/scraper/index.ts",
     "src/workers/scheduler.ts",
   ],
   format: ["cjs", "esm"],
