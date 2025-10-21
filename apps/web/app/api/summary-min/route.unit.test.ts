@@ -31,6 +31,10 @@ vi.mock('@cursor-usage/db', () => ({
     usageEvent: {
       count: vi.fn(),
     },
+    rawBlob: {
+      count: vi.fn(),
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -52,6 +56,8 @@ describe('/api/summary-min (unit tests)', () => {
       captured_at: new Date('2025-02-15T10:00:00Z'),
     } as any);
     vi.mocked(prisma.usageEvent.count).mockResolvedValue(5);
+    vi.mocked(prisma.rawBlob.count).mockResolvedValue(3);
+    vi.mocked(prisma.rawBlob.findFirst).mockResolvedValue({ captured_at: new Date('2025-02-15T09:00:00Z') } as any);
 
     const { GET } = await import('./route');
 
@@ -63,6 +69,8 @@ describe('/api/summary-min (unit tests)', () => {
       snapshotCount: 2,
       lastSnapshotAt: '2025-02-15T10:00:00.000Z',
       usageEventCount: 5,
+      rawBlobCount: 3,
+      lastRawBlobAt: '2025-02-15T09:00:00.000Z',
     });
   });
 
@@ -71,6 +79,8 @@ describe('/api/summary-min (unit tests)', () => {
     vi.mocked(prisma.snapshot.count).mockResolvedValue(0);
     vi.mocked(prisma.snapshot.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.usageEvent.count).mockResolvedValue(0);
+    vi.mocked(prisma.rawBlob.count).mockResolvedValue(0);
+    vi.mocked(prisma.rawBlob.findFirst).mockResolvedValue(null);
 
     const { GET } = await import('./route');
 
@@ -82,6 +92,8 @@ describe('/api/summary-min (unit tests)', () => {
       snapshotCount: 0,
       lastSnapshotAt: null,
       usageEventCount: 0,
+      rawBlobCount: 0,
+      lastRawBlobAt: null,
     });
   });
 
@@ -100,6 +112,8 @@ describe('/api/summary-min (unit tests)', () => {
       snapshotCount: 0,
       lastSnapshotAt: null,
       usageEventCount: 0,
+      rawBlobCount: 0,
+      lastRawBlobAt: null,
     });
   });
 });

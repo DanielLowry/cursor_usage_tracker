@@ -12,6 +12,8 @@ export async function GET() {
       snapshotCount: 0,
       lastSnapshotAt: null,
       usageEventCount: 0,
+      rawBlobCount: 0,
+      lastRawBlobAt: null,
     });
   }
 
@@ -40,6 +42,6 @@ export async function GET() {
     return NextResponse.json({ snapshotCount, lastSnapshotAt, usageEventCount, rawBlobCount, lastRawBlobAt });
   } catch (error) {
     console.error('Error fetching summary data:', error);
-    return NextResponse.json({ snapshotCount: 0, lastSnapshotAt: null, usageEventCount: 0 });
+    return NextResponse.json({ snapshotCount: 0, lastSnapshotAt: null, usageEventCount: 0, rawBlobCount: 0, lastRawBlobAt: null });
   }
 }
