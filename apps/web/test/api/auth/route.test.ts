@@ -38,6 +38,8 @@ describe('API Route Tests', () => {
     (fs.existsSync as vi.Mock).mockReturnValue(true);
     (fs.mkdirSync as vi.Mock).mockReturnValue(undefined);
     (pathModule.join as vi.Mock).mockImplementation((...args) => args.join('/'));
+    // Spy on AuthSession.writeAtomically so tests can assert it was called
+    vi.spyOn(AuthSession.prototype as any, 'writeAtomically').mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -97,10 +99,11 @@ describe('API Route Tests', () => {
       expect(json.verification.status).toBe(200);
       expect(json.verification.reason).toBe('api_ok');
       
-      // Assert that writeRawCookiesAtomic (which uses AuthSession.writeAtomically internally) was called with the derived cookies
+      // Assert that writeRawCookiesAtomic (which uses AuthSession.writeAtomically internally) was called
       expect(vi.mocked(AuthSession.prototype.writeAtomically)).toHaveBeenCalledOnce();
       const expectedDerivedCookies = deriveRawCookiesFromSessionData(mockSessionData);
-      expect(vi.mocked(AuthSession.prototype.writeAtomically)).toHaveBeenCalledWith(expectedDerivedCookies);
+      // writeAtomically is called with the full state object; assert that sessionCookies matches the derived cookies
+      expect(vi.mocked(AuthSession.prototype.writeAtomically)).toHaveBeenCalledWith(expect.objectContaining({ sessionCookies: expectedDerivedCookies }));
     });
   });
 });
