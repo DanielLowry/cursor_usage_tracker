@@ -24,6 +24,7 @@ export default defineConfig({
       { find: "@cursor-usage/env", replacement: fromRoot("packages/env/src") },
       { find: "@cursor-usage/queues", replacement: fromRoot("packages/shared/queues/src") },
       { find: "@cursor-usage/redis", replacement: fromRoot("packages/shared/redis/src") },
+      { find: "@cursor-usage/cursor_auth", replacement: fromRoot("packages/shared/cursor-auth/src") },
     ],
   },
 });
