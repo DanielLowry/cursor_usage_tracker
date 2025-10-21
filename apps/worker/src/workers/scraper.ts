@@ -23,10 +23,6 @@ import { normalizeCapturedPayload } from './scraper/normalize';
 import { buildStableViewHash as buildStableViewHashCore } from './scraper/tableHash';
 import { computeDeltaEvents } from './scraper/delta';
 
-export { buildStableViewHashCore as buildStableViewHash } from './scraper/tableHash';
-export { normalizeCapturedPayload } from './scraper/normalize';
-export { computeDeltaEvents } from './scraper/delta';
-
 /**
  * Module: scraper
  *
