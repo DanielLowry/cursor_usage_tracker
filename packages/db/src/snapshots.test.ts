@@ -58,13 +58,13 @@ describe('snapshotting with change detection', () => {
     };
 
     // First snapshot
-    const result1 = await createSnapshotIfChanged({ payload, capturedAt, rawBlobId: null });
+    const result1 = await createSnapshotIfChanged({ payload, capturedAt });
     expect(result1.wasNew).toBe(true);
     expect(result1.snapshotId).toBeTruthy();
     expect(result1.usageEventIds.length).toBe(1);
 
     // Same data again
-    const result2 = await createSnapshotIfChanged({ payload, capturedAt: new Date('2025-02-15T11:00:00Z'), rawBlobId: null });
+    const result2 = await createSnapshotIfChanged({ payload, capturedAt: new Date('2025-02-15T11:00:00Z') });
     expect(result2.wasNew).toBe(false);
     expect(result2.snapshotId).toBe(result1.snapshotId);
 
@@ -98,11 +98,11 @@ describe('snapshotting with change detection', () => {
     };
 
     // First snapshot
-    const result1 = await createSnapshotIfChanged({ payload: payload1, capturedAt: capturedAt1, rawBlobId: null });
+    const result1 = await createSnapshotIfChanged({ payload: payload1, capturedAt: capturedAt1 });
     expect(result1.wasNew).toBe(true);
 
     // Changed data
-    const result2 = await createSnapshotIfChanged({ payload: payload2, capturedAt: capturedAt2, rawBlobId: null });
+    const result2 = await createSnapshotIfChanged({ payload: payload2, capturedAt: capturedAt2 });
     expect(result2.wasNew).toBe(true);
     expect(result2.snapshotId).not.toBe(result1.snapshotId);
 
@@ -131,9 +131,19 @@ describe('snapshotting with change detection', () => {
     };
 
     // Create first snapshot
-    const result = await createSnapshotIfChanged({ payload, capturedAt, rawBlobId: null });
+    const result = await createSnapshotIfChanged({ payload, capturedAt });
     expect(result.snapshotId).toBeTruthy();
     const firstSnapshot = await prisma.snapshot.findUniqueOrThrow({ where: { id: result.snapshotId! } });
+
+    // Create a raw_blob to satisfy the required relation on snapshots
+    const rawBlobForDuplicate = await prisma.rawBlob.create({
+      data: {
+        captured_at: new Date('2025-02-15T11:00:00Z'),
+        kind: 'network_json',
+        payload: Buffer.from('[]'),
+        content_hash: `dup-${Date.now()}`,
+      },
+    });
 
     // Try to manually insert duplicate (should fail)
     await expect(
@@ -144,6 +154,7 @@ describe('snapshotting with change detection', () => {
           billing_period_end: firstSnapshot.billing_period_end,
           table_hash: firstSnapshot.table_hash,
           rows_count: firstSnapshot.rows_count,
+          raw_blob: { connect: { id: rawBlobForDuplicate.id } },
         },
       })
     ).rejects.toThrow();
@@ -155,7 +166,7 @@ describe('snapshotting with change detection', () => {
     const payload = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     const capturedAt = new Date('2025-02-15T10:00:00Z');
 
-    const result = await createSnapshotIfChanged({ payload, capturedAt, rawBlobId: null });
+    const result = await createSnapshotIfChanged({ payload, capturedAt });
     expect(result.wasNew).toBe(true);
     expect(result.usageEventIds.length).toBe(2); // sample1.json has 2 rows
 
