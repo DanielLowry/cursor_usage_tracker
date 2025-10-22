@@ -11,6 +11,8 @@ jobs:
   test:
     name: Lint & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +34,13 @@ jobs:
         uses: ankane/setup-postgres@v1
         with:
           database: cursor_usage_tracker
+
+      # Set password using the postgres OS user (no password required yet)
+      - name: Set Postgres password (Linux)
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        shell: bash
+        run: |
+          sudo -u postgres psql -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"   
 
       
       # Cache pnpm store (works the same on Linux & Windows)
@@ -55,6 +64,17 @@ jobs:
       - name: Prisma Generate
         run: pnpm --filter @cursor-usage/db run db:generate
 
+      # Apply migrations early so the schema exists for any DB interactions
+      - name: Prisma Migrate Deploy
+        run: pnpm --filter @cursor-usage/db run db:migrate
+
+      - name: Prisma Migrate Status
+        run: pnpm --filter @cursor-usage/db exec prisma migrate status
+
+      # Fallback: ensure DB schema matches Prisma schema even if migrations lag
+      - name: Prisma DB Push (fallback)
+        run: pnpm --filter @cursor-usage/db exec prisma db push --accept-data-loss
+
       - name: Build dependent packages
         run: |
           # Ensure workspace packages that Next may import are built first
@@ -73,37 +93,17 @@ jobs:
             if docker exec redis redis-cli ping | grep PONG; then
               echo "Redis is ready"; break; fi; sleep 1; done
 
-      # Set password using the postgres OS user (no password required yet)
-      - name: Set Postgres password (Linux)
-        if: ${{ matrix.os == 'ubuntu-latest' }}
-        shell: bash
-        run: |
-          sudo -u postgres psql -d postgres -c "ALTER USER postgres WITH PASSWORD 'postgres';"   
-        
-
       - name: DB Smoke
         run: pnpm exec tsx scripts/db-smoke.ts
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
 
-
-      # Test database migration files
-      - name: Prisma Migrate Deploy
-        run: pnpm --filter @cursor-usage/db run db:migrate
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
 
       - name: DB Index Usage Test
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: pnpm --filter @cursor-usage/db run test:indexes
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
 
       - name: DB Connection Test
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: pnpm --filter @cursor-usage/db run test:db
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
 
       - name: Queue Smoke Test
         if: ${{ matrix.os == 'ubuntu-latest' }}
@@ -126,4 +126,4 @@ jobs:
       - name: Test
         run: pnpm test
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker
+          DEBUG: prisma:client
