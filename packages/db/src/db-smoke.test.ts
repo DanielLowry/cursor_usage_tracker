@@ -17,6 +17,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { dbSmoke } from '../../../scripts/db-smoke';
 
 const isWindows = process.platform === 'win32';
+const shouldSkip = !process.env.DATABASE_URL && !process.env.CI;
 
 describe('DB smoke connectivity', () => {
   beforeAll(() => {
@@ -25,7 +26,7 @@ describe('DB smoke connectivity', () => {
       process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/cursor_usage_tracker';
     }
   });
-  const t = isWindows ? it.skip : it;
+  const t = isWindows || shouldSkip ? it.skip : it;
   t('connects and runs SELECT 1', async () => {
     await expect(dbSmoke()).resolves.toBeUndefined();
   });

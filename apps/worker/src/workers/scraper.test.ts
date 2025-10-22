@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { ensureBlob } from './scraper';
 import { createHash } from 'crypto';
 
-describe('scraper ensureBlob', () => {
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL);
+const describeIfDb = hasDatabaseUrl ? describe : describe.skip;
+
+describeIfDb('scraper ensureBlob', () => {
   it('ensureBlob reuses existing or creates new blob', async () => {
     // This is a lightweight smoke test calling ensureBlob with an in-memory buffer.
     const buf = Buffer.from(JSON.stringify({ a: 1 }));

@@ -56,6 +56,7 @@ model UsageEvent {
 model Snapshot {
   id            String   @id @default(uuid()) @db.Uuid
   captured_at   DateTime @db.Timestamptz()
+  created_at    DateTime @default(now()) @db.Timestamptz()
 
   // Derived by scraper at runtime (optional, keep if useful)
   billing_period_start DateTime? @db.Date
@@ -75,7 +76,8 @@ model Snapshot {
 
   @@map("snapshots")
   @@index([captured_at])
-  @@unique([table_hash, rows_count]) 
+  @@index([created_at])
+  @@unique([billing_period_start, billing_period_end, table_hash])
 }
 
 model RawBlob {
