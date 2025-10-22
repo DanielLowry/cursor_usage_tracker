@@ -117,6 +117,9 @@ importers:
       '@cursor-usage/hash':
         specifier: workspace:*
         version: link:../../packages/shared/hash
+      '@cursor-usage/ingest':
+        specifier: workspace:*
+        version: link:../../packages/shared/ingest
       '@cursor-usage/redis':
         specifier: workspace:*
         version: link:../../packages/shared/redis
