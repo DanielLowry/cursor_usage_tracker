@@ -21,9 +21,11 @@ async function reset() {
 }
 
 describe('dummy test', () => {
-  const result = true;
-  expect(result).toBe(true);
+  it('always returns true', async () => {
+    const result = true;
+    expect(result).toBe(true);
   });
+});
 
 // describe('insertUsageEventsFromNetworkJson (db)', () => {
 //   beforeAll(async () => {

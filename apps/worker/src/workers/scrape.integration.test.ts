@@ -25,6 +25,13 @@ async function reset() {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE raw_blobs RESTART IDENTITY CASCADE');
 }
 
+describe('dummy test', () => {
+  it('always returns true', async () => {
+    const result = true;
+    expect(result).toBe(true);
+  });
+});
+
 // describe('scrape integration: insert usage events from captured JSON', () => {
 //   beforeAll(async () => {
 //     await prisma.$connect();

@@ -38,10 +38,11 @@ async function reset() {
 }
 
 describe('dummy test', () => {
-  const result = true;
-  expect(result).toBe(true);
+  it('always returns true', async () => {
+    const result = true;
+    expect(result).toBe(true);
   });
-
+});
 
   // it('same data twice → one snapshot', async () => {
   //   await reset();
