@@ -1,3 +1,6 @@
+// Relative path: apps/worker/src/workers/scraper/csv.ts
+// CSV parsing utilities for Cursor usage exports. Converts the raw CSV text
+// into a minimal structured shape that downstream normalization can consume.
 import { parse as parseCsv } from 'csv-parse/sync';
 
 export type UsageCsvRow = {
@@ -17,6 +20,10 @@ export type UsageCsvCapture = {
   rows: UsageCsvRow[];
 };
 
+/**
+ * Parses the Cursor usage CSV export into a structured capture object.
+ * Returns `null` if the CSV cannot be parsed.
+ */
 export function parseUsageCsv(csvText: string): UsageCsvCapture | null {
   try {
     const records: Array<Record<string, string>> = parseCsv(csvText, {
@@ -50,6 +57,9 @@ export function parseUsageCsv(csvText: string): UsageCsvCapture | null {
   }
 }
 
+/**
+ * Computes the billing period (UTC month) from a representative ISO date string.
+ */
 function computeBillingPeriod(isoDate: string): { start: string; end: string } | undefined {
   const reference = new Date(isoDate);
   if (Number.isNaN(reference.getTime())) return undefined;

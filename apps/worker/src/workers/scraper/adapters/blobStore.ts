@@ -1,3 +1,5 @@
+// Relative path: apps/worker/src/workers/scraper/adapters/blobStore.ts
+// Adapter persisting raw blobs (CSV/JSON) to the database with dedup and retention.
 import { createHash } from 'crypto';
 import { promisify } from 'util';
 import * as zlib from 'zlib';
@@ -12,9 +14,17 @@ export type PrismaBlobStoreOptions = {
   logger: Logger;
 };
 
+/**
+ * BlobStorePort implementation backed by Prisma. Deduplicates by sha256 of the
+ * raw payload and gzips before storing.
+ */
 export class PrismaBlobStore implements BlobStorePort {
   constructor(private readonly options: PrismaBlobStoreOptions) {}
 
+  /**
+   * Persists the blob if its content hash is new. Returns whether it was saved
+   * or detected as a duplicate, along with ids and hash.
+   */
   async saveIfNew(input: {
     payload: Buffer;
     kind: 'html' | 'network_json';
@@ -73,6 +83,7 @@ export class PrismaBlobStore implements BlobStorePort {
     }
   }
 
+  /** Trims raw blob table to retain only the latest `retain` entries. */
   async trimRetention(retain: number): Promise<void> {
     try {
       await trimRawBlobs(retain);

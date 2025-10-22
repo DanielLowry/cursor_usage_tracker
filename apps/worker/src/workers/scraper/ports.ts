@@ -1,3 +1,6 @@
+// Relative path: apps/worker/src/workers/scraper/ports.ts
+// Port interfaces define the boundaries for fetch, blob storage, snapshot
+// persistence, time source, and logging used by the orchestrator.
 import type { NormalizedUsageEvent } from './normalize';
 
 export interface FetchPort {

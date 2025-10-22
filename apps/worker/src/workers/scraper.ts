@@ -1,5 +1,9 @@
 // Relative path: apps/worker/src/workers/scraper.ts
 
+// Scraper worker entrypoint: orchestrates fetching Cursor usage data, normalizing it,
+// computing a stable table hash, deriving delta events, and persisting a snapshot.
+// The heavy-lifting is delegated to focused modules under `./scraper/*` and this
+// file focuses on orchestration and environment wiring.
 import { Queue } from 'bullmq';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -15,9 +19,11 @@ import { CursorCsvFetchAdapter, DEFAULT_USAGE_EXPORT_URL } from './scraper/adapt
 import { PrismaBlobStore } from './scraper/adapters/blobStore';
 import { PrismaSnapshotStore } from './scraper/adapters/snapshotStore';
 
+// Exported BullMQ queue used by the worker process elsewhere to enqueue scraping jobs.
 const connection = getRedis();
 export const scraperQueue = new Queue('scraper', { connection });
 
+// Environment variables required by the scraper with defaults and validation.
 const envSchema = z.object({
   CURSOR_AUTH_STATE_DIR: z.string().min(1).default('./data'),
   RAW_BLOB_KEEP_N: z
@@ -31,12 +37,19 @@ export type ScrapeResult = {
   savedCount: number;
 };
 
+/**
+ * SystemClock implements `ClockPort` using the host system time.
+ */
 class SystemClock implements ClockPort {
   now(): Date {
     return new Date();
   }
 }
 
+/**
+ * ConsoleLogger implements `Logger` by delegating to the process console.
+ * Messages are structured and can carry optional context objects.
+ */
 class ConsoleLogger implements Logger {
   debug(message: string, context: Record<string, unknown> = {}): void {
     console.debug(message, context);
@@ -62,9 +75,23 @@ export type ScraperOrchestratorDependencies = {
   csvSourceUrl: string;
 };
 
+/**
+ * ScraperOrchestrator coordinates the end-to-end scrape:
+ * - Fetch CSV export from Cursor via `FetchPort`
+ * - Persist raw blob if new via `BlobStorePort` (dedup by content-hash)
+ * - Parse CSV and normalize into `NormalizedUsageEvent[]`
+ * - Compute a stable table hash and billing period from normalized events
+ * - Compute delta events (new rows since last snapshot in the billing period)
+ * - Persist snapshot with delta via `SnapshotStorePort`
+ * - Trim raw blob retention to keep storage bounded
+ */
 export class ScraperOrchestrator {
   constructor(private readonly deps: ScraperOrchestratorDependencies) {}
 
+  /**
+   * Runs a single scrape cycle. Returns how many raw blobs were saved (0 if duplicate).
+   * Throws `ScraperError` on known failure categories.
+   */
   async run(): Promise<ScrapeResult> {
     const { fetchPort, blobStore, snapshotStore, clock, logger, retentionCount, csvSourceUrl } = this.deps;
 
@@ -152,12 +179,20 @@ export class ScraperOrchestrator {
   }
 }
 
+/**
+ * Parses and validates environment variables needed by the scraper.
+ */
 function parseEnv() {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) throw new ScraperError('VALIDATION_ERROR', `invalid env: ${parsed.error.message}`);
   return parsed.data as { CURSOR_AUTH_STATE_DIR: string; RAW_BLOB_KEEP_N: number };
 }
 
+/**
+ * Resolves the directory containing Cursor auth state. If the requested directory
+ * does not contain `cursor.state.json`, attempts to locate a plausible
+ * alternative within the repository (e.g., `apps/web/data`).
+ */
 function resolveStateDir(requestedStateDir: string) {
   const requestedStatePath = path.join(path.resolve(requestedStateDir), 'cursor.state.json');
   if (fs.existsSync(requestedStatePath)) {
@@ -185,6 +220,9 @@ function resolveStateDir(requestedStateDir: string) {
   return requestedStateDir;
 }
 
+/**
+ * CLI-friendly wrapper that wires concrete adapters and runs a single scrape.
+ */
 export async function runScrape(): Promise<ScrapeResult> {
   const env = parseEnv();
   const logger = new ConsoleLogger();
@@ -220,6 +258,10 @@ export async function runScrape(): Promise<ScrapeResult> {
   }
 }
 
+/**
+ * Test/fixture helper: ingests provided network JSON rows as raw blobs and
+ * enforces retention. Does not create snapshots.
+ */
 export async function ingestFixtures(
   fixtures: Array<{ url?: string; json: unknown }>,
   keepN = 20,
@@ -245,6 +287,9 @@ export async function ingestFixtures(
   return { savedCount: saved };
 }
 
+/**
+ * When invoked directly via `tsx`/`node`, execute a single scrape and exit.
+ */
 async function _runCli() {
   try {
     console.log('scrape: starting');

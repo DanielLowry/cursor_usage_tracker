@@ -1,3 +1,6 @@
+// Relative path: apps/worker/src/workers/scraper/tableHash.ts
+// Builds a stable table hash from normalized events. The hash is insensitive
+// to input ordering by sorting rows and hashing only relevant fields.
 import { stableHash } from '@cursor-usage/hash';
 import type { NormalizedUsageEvent } from '@cursor-usage/ingest';
 
@@ -8,6 +11,10 @@ export type TableHashResult = {
   totalRowsCount: number;
 };
 
+/**
+ * Computes a deterministic hash representing the current usage table view and
+ * extracts the billing period and counts for snapshot persistence.
+ */
 export function buildStableViewHash(normalizedEvents: NormalizedUsageEvent[]): TableHashResult {
   const sortedEvents = [...normalizedEvents].sort((a, b) => {
     if (a.model !== b.model) return a.model.localeCompare(b.model);

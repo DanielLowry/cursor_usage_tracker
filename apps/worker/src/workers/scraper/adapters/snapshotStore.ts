@@ -1,3 +1,5 @@
+// Relative path: apps/worker/src/workers/scraper/adapters/snapshotStore.ts
+// Adapter persisting snapshots and delta events using the DB package.
 import prisma from '../../../../../../packages/db/src/client';
 import { createSnapshotWithDelta } from '../../../../../../packages/db/src/snapshots';
 import { ScraperError, isScraperError } from '../errors';
@@ -7,9 +9,14 @@ export type PrismaSnapshotStoreOptions = {
   logger: Logger;
 };
 
+/**
+ * SnapshotStorePort implementation backed by Prisma. Fetches latest capture
+ * times for billing periods and persists snapshots via a helper in DB pkg.
+ */
 export class PrismaSnapshotStore implements SnapshotStorePort {
   constructor(private readonly options: PrismaSnapshotStoreOptions) {}
 
+  /** Returns the latest `captured_at` for the given billing period, if any. */
   async findLatestCapture(period: { start: Date | null; end: Date | null }): Promise<Date | null> {
     if (!period.start || !period.end) return null;
     try {
@@ -24,6 +31,7 @@ export class PrismaSnapshotStore implements SnapshotStorePort {
     }
   }
 
+  /** Persists a snapshot with the provided delta events, returning the outcome. */
   async persistSnapshot(input: SnapshotPersistInput): Promise<SnapshotPersistResult> {
     try {
       const result = await createSnapshotWithDelta({
