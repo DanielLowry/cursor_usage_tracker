@@ -37,8 +37,9 @@ async function reset() {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE raw_blobs RESTART IDENTITY CASCADE');
 }
 
-describe('snapshotting with change detection', () => {
-  expect(true).toBe(true);
+describe('dummy test', () => {
+  const result = true;
+  expect(result).toBe(true);
   });
 
 
@@ -171,4 +172,3 @@ describe('snapshotting with change detection', () => {
   //   expect(snapshot!.billing_period_start?.toISOString()).toBe('2025-02-01T00:00:00.000Z');
   //   expect(snapshot!.billing_period_end?.toISOString()).toBe('2025-02-28T00:00:00.000Z');
   // });
-});
