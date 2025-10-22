@@ -22,7 +22,10 @@ async function reset() {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE raw_blobs RESTART IDENTITY CASCADE');
 }
 
-describe('network capture → raw_blobs (fixtures)', () => {
+const hasDatabase = !!process.env.DATABASE_URL;
+const describeIfDb = hasDatabase ? describe : describe.skip;
+
+describeIfDb('network capture → raw_blobs (fixtures)', () => {
   beforeAll(async () => {
     await prisma.$connect();
   });

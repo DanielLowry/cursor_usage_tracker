@@ -1,4 +1,6 @@
-import { mapNetworkJson, type NormalizedUsageEvent } from '@cursor-usage/ingest';
+import { mapNetworkJson, type NormalizedUsageEvent } from '../../../../../packages/shared/ingest/src';
+
+export type { NormalizedUsageEvent } from '../../../../../packages/shared/ingest/src';
 
 export type NormalizablePayload = unknown;
 
