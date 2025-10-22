@@ -41,6 +41,7 @@ export class PrismaSnapshotStore implements SnapshotStorePort {
         totalRowsCount: input.totalRowsCount,
         capturedAt: input.capturedAt,
         normalizedDeltaEvents: input.deltaEvents,
+        rawBlobId: input.deltaEvents[0]?.raw_blob_id ?? null,
       });
       this.options.logger.info('scraper.snapshot.persisted', {
         snapshotId: result.snapshotId,

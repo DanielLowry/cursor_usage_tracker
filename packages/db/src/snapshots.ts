@@ -209,8 +209,9 @@ export async function createSnapshotWithDelta(params: {
   totalRowsCount: number;
   capturedAt: Date;
   normalizedDeltaEvents: NormalizedUsageEvent[];
+  rawBlobId?: string | null;
 }): Promise<SnapshotResult> {
-  const { billingPeriodStart, billingPeriodEnd, tableHash, totalRowsCount, capturedAt, normalizedDeltaEvents } = params;
+  const { billingPeriodStart, billingPeriodEnd, tableHash, totalRowsCount, capturedAt, normalizedDeltaEvents, rawBlobId } = params;
 
   // Check for existing snapshot with same hash and billing period
   const existingSnapshot = await prisma.snapshot.findFirst({
@@ -239,6 +240,7 @@ export async function createSnapshotWithDelta(params: {
         billing_period_end: billingPeriodEnd,
         table_hash: tableHash,
         rows_count: totalRowsCount,
+        raw_blob_id: rawBlobId ?? undefined,
       },
     });
   } catch (err: any) {
