@@ -20,12 +20,12 @@ export class PrismaSnapshotStore implements SnapshotStorePort {
   async findLatestCapture(period: { start: Date | null; end: Date | null }): Promise<Date | null> {
     if (!period.start || !period.end) return null;
     try {
-      const latest = await prisma.snapshot.findFirst({
+      const latest = await prisma.usageEvent.findFirst({
         where: { billing_period_start: period.start, billing_period_end: period.end },
-        orderBy: { captured_at: 'desc' },
-        select: { captured_at: true },
+        orderBy: { last_seen_at: 'desc' },
+        select: { last_seen_at: true },
       });
-      return latest?.captured_at ?? null;
+      return latest?.last_seen_at ?? null;
     } catch (err) {
       throw new ScraperError('IO_ERROR', 'failed reading latest snapshot for billing period', { cause: err });
     }
@@ -42,11 +42,18 @@ export class PrismaSnapshotStore implements SnapshotStorePort {
         capturedAt: input.capturedAt,
         normalizedDeltaEvents: input.deltaEvents,
         rawBlobId: input.deltaEvents[0]?.raw_blob_id ?? null,
+        contentHash: input.contentHash ?? null,
+        headers: input.ingestionHeaders ?? null,
+        metadata: input.ingestionMetadata ?? null,
+        logicVersion: input.logicVersion ?? null,
       });
       this.options.logger.info('scraper.snapshot.persisted', {
         snapshotId: result.snapshotId,
         wasNew: result.wasNew,
         deltaCount: input.deltaEvents.length,
+        ingestionId: result.ingestionId,
+        insertedCount: result.insertedCount,
+        updatedCount: result.updatedCount,
       });
       return result;
     } catch (err) {

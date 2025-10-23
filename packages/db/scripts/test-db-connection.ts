@@ -8,15 +8,15 @@ async function main() {
     console.log('Database connection successful');
 
     // Count rows in all tables
-    const [usageEvents, snapshots, rawBlobs] = await Promise.all([
+    const [usageEvents, ingestions, rawBlobs] = await Promise.all([
       prisma.usageEvent.count(),
-      prisma.snapshot.count(),
+      prisma.ingestion.count(),
       prisma.rawBlob.count(),
     ]);
 
     console.log('Row counts:', {
       usageEvents,
-      snapshots,
+      ingestions,
       rawBlobs,
     });
 
