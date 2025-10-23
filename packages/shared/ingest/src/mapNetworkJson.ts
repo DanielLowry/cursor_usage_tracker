@@ -39,7 +39,7 @@ export type NormalizedUsageEvent = {
   cost_to_you_raw?: string | null;
   billing_period_start: Date | null;
   billing_period_end: Date | null;
-  source: 'network_json';
+  source: string;
   raw_blob_id?: string | null;
 };
 

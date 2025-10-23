@@ -7,40 +7,29 @@ export interface FetchPort {
   fetchCsvExport(): Promise<Buffer>;
 }
 
-export type BlobSaveResult =
-  | { outcome: 'saved'; blobId: string; contentHash: string }
-  | { outcome: 'duplicate'; blobId: string; contentHash: string };
+export type NormalizedUsageEventWithHash = NormalizedUsageEvent & { rowHash: string };
 
-export interface BlobStorePort {
-  saveIfNew(input: { payload: Buffer; kind: 'html' | 'network_json'; url?: string; capturedAt: Date }): Promise<BlobSaveResult>;
-  trimRetention(retain: number): Promise<void>;
-}
-
-export type SnapshotPersistInput = {
-  billingPeriodStart: Date | null;
-  billingPeriodEnd: Date | null;
-  tableHash: string;
-  totalRowsCount: number;
-  capturedAt: Date;
-  deltaEvents: NormalizedUsageEvent[];
-  contentHash?: string | null;
-  ingestionHeaders?: Record<string, unknown> | null;
-  ingestionMetadata?: Record<string, unknown> | null;
+export type UsageEventIngestInput = {
+  events: NormalizedUsageEventWithHash[];
+  ingestedAt: Date;
+  contentHash: string;
+  size: number;
+  headers: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   logicVersion?: number | null;
+  rawBlobId?: string | null;
+  source: string;
 };
 
-export type SnapshotPersistResult = {
-  snapshotId: string | null;
-  wasNew: boolean;
-  usageEventIds: string[];
+export type UsageEventIngestResult = {
   ingestionId: string | null;
   insertedCount: number;
-  updatedCount: number;
+  duplicateCount: number;
+  rowHashes: string[];
 };
 
-export interface SnapshotStorePort {
-  findLatestCapture(period: { start: Date | null; end: Date | null }): Promise<Date | null>;
-  persistSnapshot(input: SnapshotPersistInput): Promise<SnapshotPersistResult>;
+export interface UsageEventStorePort {
+  ingest(input: UsageEventIngestInput): Promise<UsageEventIngestResult>;
 }
 
 export interface ClockPort {

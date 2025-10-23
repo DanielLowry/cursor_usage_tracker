@@ -1,23 +1,22 @@
 // Relative path: apps/worker/src/workers/scraper.ts
 
 // Scraper worker entrypoint: orchestrates fetching Cursor usage data, normalizing it,
-// computing a stable table hash, deriving delta events, and persisting a snapshot.
-// The heavy-lifting is delegated to focused modules under `./scraper/*` and this
-// file focuses on orchestration and environment wiring.
+// computing deterministic row hashes, and persisting the batch into the usage
+// event store. The heavy-lifting is delegated to focused modules under
+// `./scraper/*` and this file focuses on orchestration and environment wiring.
 import { Queue } from 'bullmq';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { z } from 'zod';
 import { getRedis } from '@cursor-usage/redis';
+import { computeUsageEventRowHash } from '../../../../packages/shared/ingest/src';
 import { parseUsageCsv } from './scraper/csv';
-import { normalizeCapturedPayload, type NormalizedUsageEvent } from './scraper/normalize';
-import { buildStableViewHash as buildStableViewHashCore } from './scraper/tableHash';
-import { computeDeltaEvents } from './scraper/delta';
+import { normalizeCapturedPayload } from './scraper/normalize';
 import { ScraperError, isScraperError } from './scraper/errors';
-import type { BlobStorePort, ClockPort, FetchPort, Logger, SnapshotStorePort } from './scraper/ports';
+import type { ClockPort, FetchPort, Logger, NormalizedUsageEventWithHash, UsageEventStorePort } from './scraper/ports';
 import { CursorCsvFetchAdapter, DEFAULT_USAGE_EXPORT_URL } from './scraper/adapters/fetch';
-import { PrismaBlobStore } from './scraper/adapters/blobStore';
-import { PrismaSnapshotStore } from './scraper/adapters/snapshotStore';
+import { PrismaUsageEventStore } from './scraper/adapters/eventStore';
 
 // Exported BullMQ queue used by the worker process elsewhere to enqueue scraping jobs.
 const connection = getRedis();
@@ -26,15 +25,15 @@ export const scraperQueue = new Queue('scraper', { connection });
 // Environment variables required by the scraper with defaults and validation.
 const envSchema = z.object({
   CURSOR_AUTH_STATE_DIR: z.string().min(1).default('./data'),
-  RAW_BLOB_KEEP_N: z
-    .string()
-    .optional()
-    .default('20')
-    .transform((s) => parseInt(s, 10)),
 });
 
 export type ScrapeResult = {
-  savedCount: number;
+  ingestionId: string | null;
+  insertedCount: number;
+  duplicateCount: number;
+  rowHashes: string[];
+  contentHash: string;
+  bytes: number;
 };
 
 /**
@@ -67,115 +66,117 @@ class ConsoleLogger implements Logger {
 
 export type ScraperOrchestratorDependencies = {
   fetchPort: FetchPort;
-  blobStore: BlobStorePort;
-  snapshotStore: SnapshotStorePort;
+  eventStore: UsageEventStorePort;
   clock: ClockPort;
   logger: Logger;
-  retentionCount: number;
   csvSourceUrl: string;
+  ingestionSource?: string;
+  logicVersion?: number;
 };
 
 /**
  * ScraperOrchestrator coordinates the end-to-end scrape:
  * - Fetch CSV export from Cursor via `FetchPort`
- * - Persist raw blob if new via `BlobStorePort` (dedup by content-hash)
- * - Parse CSV and normalize into `NormalizedUsageEvent[]`
- * - Compute a stable table hash and billing period from normalized events
- * - Compute delta events (new rows since last snapshot in the billing period)
- * - Persist snapshot with delta via `SnapshotStorePort`
- * - Trim raw blob retention to keep storage bounded
+ * - Normalize into deterministic usage events with row hashes
+ * - Upsert rows into the usage event store and record ingestion metadata
  */
 export class ScraperOrchestrator {
   constructor(private readonly deps: ScraperOrchestratorDependencies) {}
 
   /**
-   * Runs a single scrape cycle. Returns how many raw blobs were saved (0 if duplicate).
+   * Runs a single scrape cycle and returns ingestion stats for observability.
    * Throws `ScraperError` on known failure categories.
    */
   async run(): Promise<ScrapeResult> {
-    const { fetchPort, blobStore, snapshotStore, clock, logger, retentionCount, csvSourceUrl } = this.deps;
+    const { fetchPort, eventStore, clock, logger, csvSourceUrl, ingestionSource, logicVersion } = this.deps;
 
-    logger.info('scraper.run.start');
+    logger.info('scrape.start', { csvSourceUrl });
 
     let csvBuffer: Buffer;
     try {
       csvBuffer = await fetchPort.fetchCsvExport();
     } catch (err) {
       if (isScraperError(err)) {
-        logger.error('scraper.fetch.failed', { code: err.code, message: err.message, details: err.details });
+        logger.error('scrape.fetch_failed', { code: err.code, message: err.message, details: err.details });
         throw err;
       }
-      logger.error('scraper.fetch.failed', { error: err });
+      logger.error('scrape.fetch_failed', { error: err });
       throw new ScraperError('FETCH_ERROR', 'failed to fetch usage csv', { cause: err });
     }
 
-    logger.debug('scraper.fetch.completed', { bytes: csvBuffer.length });
+    const bytes = csvBuffer.length;
+    logger.debug('scrape.fetch.completed', { bytes });
 
-    const capturedAt = clock.now();
-
-    const blobResult = await blobStore.saveIfNew({
-      payload: csvBuffer,
-      kind: 'html',
-      url: csvSourceUrl,
-      capturedAt,
-    });
-
-    if (blobResult.outcome === 'duplicate') {
-      logger.info('scraper.run.duplicate_blob', {
-        blobId: blobResult.blobId,
-        contentHash: blobResult.contentHash,
-      });
-      return { savedCount: 0 };
-    }
+    const ingestedAt = clock.now();
+    const contentHash = createHash('sha256').update(csvBuffer).digest('hex');
 
     const csvText = csvBuffer.toString('utf8');
     const parsedCsv = parseUsageCsv(csvText);
     if (!parsedCsv) {
-      logger.error('scraper.csv.parse_failed');
+      logger.error('events.parse_failed', { reason: 'csv_parse_error' });
       throw new ScraperError('CSV_PARSE_ERROR', 'failed to parse usage csv');
     }
 
-    logger.debug('scraper.csv.parsed', { rows: parsedCsv.rows.length });
+    logger.debug('events.parsed', { rowCount: parsedCsv.rows.length });
 
-    let normalizedEvents: NormalizedUsageEvent[];
-    try {
-      normalizedEvents = normalizeCapturedPayload(parsedCsv, capturedAt, blobResult.blobId);
-    } catch (err) {
-      logger.error('scraper.normalize.failed', { error: err instanceof Error ? err.message : String(err) });
-      throw new ScraperError('VALIDATION_ERROR', 'failed to normalize captured payload', { cause: err });
-    }
+    const normalizedEvents = normalizeCapturedPayload(parsedCsv, ingestedAt, null).map((event) => ({
+      ...event,
+      source: ingestionSource ?? 'cursor_csv',
+    }));
 
-    const { tableHash, billingPeriodStart, billingPeriodEnd, totalRowsCount } =
-      buildStableViewHashCore(normalizedEvents);
-    logger.info('scraper.table_hash.computed', {
-      tableHash,
-      totalRowsCount,
-      billingPeriodStart: billingPeriodStart?.toISOString() ?? null,
-      billingPeriodEnd: billingPeriodEnd?.toISOString() ?? null,
+    const version = logicVersion ?? 1;
+    const eventsWithHash: NormalizedUsageEventWithHash[] = normalizedEvents.map((event) => ({
+      ...event,
+      rowHash: computeUsageEventRowHash(event, version),
+    }));
+
+    const metadata = {
+      row_count: eventsWithHash.length,
+      billing_period_start: parsedCsv.billing_period?.start ?? null,
+      billing_period_end: parsedCsv.billing_period?.end ?? null,
+      parse_format: 'csv',
+    } satisfies Record<string, unknown>;
+
+    const headers = {
+      'content-type': 'text/csv',
+    } as Record<string, unknown>;
+
+    const ingestResult = await eventStore.ingest({
+      events: eventsWithHash,
+      ingestedAt,
+      contentHash,
+      size: bytes,
+      headers,
+      metadata,
+      logicVersion: version,
+      source: ingestionSource ?? 'cursor_csv',
     });
 
-    const latestCapture = await snapshotStore.findLatestCapture({ start: billingPeriodStart, end: billingPeriodEnd });
-    logger.debug('scraper.snapshot.latest_capture', {
-      latestCapture: latestCapture ? latestCapture.toISOString() : null,
+    logger.info('events.upserted', {
+      insertedCount: ingestResult.insertedCount,
+    });
+    logger.info('events.duplicate_count', {
+      duplicateCount: ingestResult.duplicateCount,
     });
 
-    const deltaEvents = computeDeltaEvents(normalizedEvents, latestCapture);
-    logger.info('scraper.delta.ready', { deltaCount: deltaEvents.length });
+    logger.info('blob.skipped', { reason: 'policy:not_implemented', contentHash });
 
-    await snapshotStore.persistSnapshot({
-      billingPeriodStart,
-      billingPeriodEnd,
-      tableHash,
-      totalRowsCount,
-      capturedAt,
-      deltaEvents,
+    logger.info('scrape.done', {
+      ingestionId: ingestResult.ingestionId,
+      insertedCount: ingestResult.insertedCount,
+      duplicateCount: ingestResult.duplicateCount,
+      rowCount: eventsWithHash.length,
+      contentHash,
     });
 
-    await blobStore.trimRetention(retentionCount);
-
-    const savedCount = blobResult.outcome === 'saved' ? 1 : 0;
-    logger.info('scraper.run.complete', { savedCount, blobId: blobResult.blobId });
-    return { savedCount };
+    return {
+      ingestionId: ingestResult.ingestionId,
+      insertedCount: ingestResult.insertedCount,
+      duplicateCount: ingestResult.duplicateCount,
+      rowHashes: ingestResult.rowHashes,
+      contentHash,
+      bytes,
+    };
   }
 }
 
@@ -185,7 +186,7 @@ export class ScraperOrchestrator {
 function parseEnv() {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) throw new ScraperError('VALIDATION_ERROR', `invalid env: ${parsed.error.message}`);
-  return parsed.data as { CURSOR_AUTH_STATE_DIR: string; RAW_BLOB_KEEP_N: number };
+  return parsed.data as { CURSOR_AUTH_STATE_DIR: string };
 }
 
 /**
@@ -227,64 +228,33 @@ export async function runScrape(): Promise<ScrapeResult> {
   const env = parseEnv();
   const logger = new ConsoleLogger();
 
-  logger.info('scraper.env', { CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
+  logger.info('scrape.env', { CURSOR_AUTH_STATE_DIR: env.CURSOR_AUTH_STATE_DIR });
 
   const requestedStateDir = env.CURSOR_AUTH_STATE_DIR || './data';
   const chosenStateDir = resolveStateDir(requestedStateDir);
-  logger.info('scraper.auth_state_dir.resolved', { chosenStateDir });
+  logger.info('scrape.auth_state_dir.resolved', { chosenStateDir });
 
   const fetchPort = new CursorCsvFetchAdapter({ stateDir: chosenStateDir, logger });
-  const blobStore = new PrismaBlobStore({ logger });
-  const snapshotStore = new PrismaSnapshotStore({ logger });
+  const eventStore = new PrismaUsageEventStore({ logger });
   const clock = new SystemClock();
 
   const orchestrator = new ScraperOrchestrator({
     fetchPort,
-    blobStore,
-    snapshotStore,
+    eventStore,
     clock,
     logger,
-    retentionCount: env.RAW_BLOB_KEEP_N,
     csvSourceUrl: DEFAULT_USAGE_EXPORT_URL,
+    ingestionSource: 'cursor_csv',
   });
 
   try {
     return await orchestrator.run();
   } catch (err) {
     if (isScraperError(err)) {
-      logger.error('scraper.run.failed', { code: err.code, message: err.message, details: err.details });
+      logger.error('scrape.run_failed', { code: err.code, message: err.message, details: err.details });
     }
     throw err;
   }
-}
-
-/**
- * Test/fixture helper: ingests provided network JSON rows as raw blobs and
- * enforces retention. Does not create snapshots.
- */
-export async function ingestFixtures(
-  fixtures: Array<{ url?: string; json: unknown }>,
-  keepN = 20,
-): Promise<ScrapeResult> {
-  const logger = new ConsoleLogger();
-  const blobStore = new PrismaBlobStore({ logger });
-  const clock = new SystemClock();
-
-  let saved = 0;
-  for (const fixture of fixtures) {
-    const payload = Buffer.from(JSON.stringify(fixture.json));
-    const capturedAt = clock.now();
-    const result = await blobStore.saveIfNew({
-      payload,
-      kind: 'network_json',
-      url: fixture.url,
-      capturedAt,
-    });
-    if (result.outcome === 'saved') saved += 1;
-  }
-
-  await blobStore.trimRetention(keepN);
-  return { savedCount: saved };
 }
 
 /**

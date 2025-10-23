@@ -2,74 +2,108 @@
  * Relative path: apps/worker/src/workers/scrape.integration.test.ts
  *
  * Test Purpose:
- * - Exercises the full scrape-to-ingest pipeline by saving fixture payloads as raw blobs, decompressing them,
- *   and feeding the results through snapshot creation to produce usage events.
+ * - Exercises the scraper orchestrator against the real Prisma event store to
+ *   ensure row-level dedupe and ingestion recording operate end-to-end.
  *
  * Assumptions:
- * - Prisma can truncate and repopulate the relevant tables (`raw_blobs`, `snapshots`, `usage_events`).
- * - `ingestFixtures` gzips payloads, and `createSnapshotIfChanged` both persists snapshots and inserts usage
- *   events tied back to the originating raw blob.
+ * - A PostgreSQL database is available via `DATABASE_URL` for the test run.
+ * - Tables `usage_event` and `ingestion` can be truncated between runs.
  *
  * Expected Outcome & Rationale:
- * - After running the pipeline, exactly one blob, snapshot, and usage event should exist, all linked together,
- *   demonstrating the integration between scraping, normalization, and persistence layers.
+ * - The first run inserts all rows and creates one ingestion.
+ * - The second run reuses the same data, resulting in zero new rows and a new
+ *   ingestion that only updates `last_seen_at`.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { beforeAll, afterAll, afterEach, describe, it, expect } from 'vitest';
+import { createHash } from 'crypto';
 import prisma from '../../../../packages/db/src/client';
-import { ingestFixtures } from './scraper';
-import { createSnapshotIfChanged } from '../../../../packages/db/src/snapshots';
+import { ScraperOrchestrator } from './scraper';
+import { PrismaUsageEventStore } from './scraper/adapters/eventStore';
+import type { ClockPort, FetchPort, Logger } from './scraper/ports';
 
-async function reset() {
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE usage_events RESTART IDENTITY CASCADE');
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE snapshots RESTART IDENTITY CASCADE');
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE raw_blobs RESTART IDENTITY CASCADE');
+class TestClock implements ClockPort {
+  constructor(private readonly fixedNow: Date) {}
+  now(): Date {
+    return new Date(this.fixedNow);
+  }
 }
 
-describe('dummy test', () => {
-  it('always returns true', async () => {
-    const result = true;
-    expect(result).toBe(true);
+class FakeFetchPort implements FetchPort {
+  constructor(private readonly payload: Buffer) {}
+  async fetchCsvExport(): Promise<Buffer> {
+    return Buffer.from(this.payload);
+  }
+}
+
+class TestLogger implements Logger {
+  info() {}
+  debug() {}
+  warn() {}
+  error() {}
+}
+
+async function resetTables() {
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE event_ingestion RESTART IDENTITY CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE usage_event RESTART IDENTITY CASCADE');
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE ingestion RESTART IDENTITY CASCADE');
+}
+
+const describeIfDb = process.env.DATABASE_URL ? describe : describe.skip;
+
+describeIfDb('ScraperOrchestrator integration', () => {
+  beforeAll(async () => {
+    await prisma.$connect();
+  });
+
+  afterEach(async () => {
+    await resetTables();
+  });
+
+  afterAll(async () => {
+    await prisma.$disconnect();
+  });
+
+  it('writes usage events on first run and dedupes on rerun', async () => {
+    const csvFixture = Buffer.from(
+      [
+        'Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost,Cost to you',
+        '2025-02-01,gpt-4o,10,5,0,15,30,$0.10,$0.10',
+        '2025-02-02,gpt-4o-mini,0,0,0,5,5,$0.05,$0.05',
+      ].join('\n'),
+      'utf8',
+    );
+    const expectedHash = createHash('sha256').update(csvFixture).digest('hex');
+    const fetchPort = new FakeFetchPort(csvFixture);
+    const clock = new TestClock(new Date('2025-03-01T00:00:00Z'));
+    const logger = new TestLogger();
+    const eventStore = new PrismaUsageEventStore({ logger });
+
+    const orchestrator = new ScraperOrchestrator({
+      fetchPort,
+      eventStore,
+      clock,
+      logger,
+      csvSourceUrl: 'https://example.com/usage.csv',
+      ingestionSource: 'cursor_csv',
+      logicVersion: 1,
+    });
+
+    const first = await orchestrator.run();
+    expect(first.contentHash).toBe(expectedHash);
+    expect(first.insertedCount).toBe(2);
+    expect(first.duplicateCount).toBe(0);
+
+    const second = await orchestrator.run();
+    expect(second.insertedCount).toBe(0);
+    expect(second.duplicateCount).toBe(2);
+
+    const ingestions = await prisma.ingestion.findMany({ orderBy: { ingested_at: 'asc' } });
+    expect(ingestions.length).toBe(2);
+    expect(ingestions[0]?.content_hash).toBe(expectedHash);
+    expect(ingestions[1]?.content_hash).toBe(expectedHash);
+
+    const events = await prisma.usageEvent.findMany();
+    expect(events.length).toBe(2);
+    expect(events.every((event) => event.first_seen_at.getTime() <= event.last_seen_at.getTime())).toBe(true);
   });
 });
-
-// describe('scrape integration: insert usage events from captured JSON', () => {
-//   beforeAll(async () => {
-//     await prisma.$connect();
-//   });
-
-//   afterAll(async () => {
-//     await reset();
-//     await prisma.$disconnect();
-//   });
-
-//   it('ingests fixtures as raw_blobs then maps and inserts into usage_events', async () => {
-//     await reset();
-//     const fixtures = [
-//       { url: 'https://api/usage', json: { billing_period: { start: '2025-02-01', end: '2025-02-29' }, rows: [{ model: 'gpt-4.1', input_with_cache_write_tokens: 1, input_without_cache_write_tokens: 2, cache_read_tokens: 0, output_tokens: 3, total_tokens: 6, api_cost: '$0.01', cost_to_you: '$0.01' }] } },
-//     ];
-//     const r = await ingestFixtures(fixtures, 5);
-//     expect(r.savedCount).toBe(1);
-
-//     const blobs = await prisma.rawBlob.findMany();
-//     expect(blobs.length).toBe(1);
-
-//     // Stored payloads are gzipped; decompress before parsing
-//     const zlib = await import('zlib');
-//     const decompressed = zlib.gunzipSync(Buffer.from(blobs[0].payload));
-//     const json = JSON.parse(decompressed.toString('utf8'));
-//     const result = await createSnapshotIfChanged({ payload: json, capturedAt: blobs[0].captured_at, rawBlobId: blobs[0].id });
-//     expect(result.wasNew).toBe(true);
-//     expect(result.usageEventIds.length).toBe(1);
-
-//     const events = await prisma.usageEvent.findMany();
-//     expect(events.length).toBe(1);
-//     expect(events[0].raw_blob_id).toBe(blobs[0].id);
-
-//     const snapshots = await prisma.snapshot.findMany();
-//     expect(snapshots.length).toBe(1);
-//     expect(snapshots[0].rows_count).toBe(1);
-//   });
-// });
-
-
-

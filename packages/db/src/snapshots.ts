@@ -1,7 +1,11 @@
 import { Prisma } from '@prisma/client';
 import prisma from './client';
 import { stableHash } from '@cursor-usage/hash';
-import { mapNetworkJson, type NormalizedUsageEvent } from '@cursor-usage/ingest';
+import {
+  mapNetworkJson,
+  type NormalizedUsageEvent,
+  computeUsageEventRowHash,
+} from '@cursor-usage/ingest';
 
 export type SnapshotPersistParams = {
   billingPeriodStart: Date | null;
@@ -42,28 +46,6 @@ function jsonValue(
 ): Prisma.InputJsonValue | Prisma.NullTypes.JsonNull {
   if (value == null) return Prisma.JsonNull;
   return value as Prisma.InputJsonValue;
-}
-
-function computeRowHash(event: NormalizedUsageEvent, logicVersion: number): string {
-  return stableHash({
-    logic_version: logicVersion,
-    captured_at: event.captured_at.toISOString(),
-    model: event.model,
-    kind: event.kind ?? null,
-    max_mode: event.max_mode ?? null,
-    input_with_cache_write_tokens: event.input_with_cache_write_tokens,
-    input_without_cache_write_tokens: event.input_without_cache_write_tokens,
-    cache_read_tokens: event.cache_read_tokens,
-    output_tokens: event.output_tokens,
-    total_tokens: event.total_tokens,
-    api_cost_cents: event.api_cost_cents,
-    api_cost_raw: event.api_cost_raw ?? null,
-    cost_to_you_cents: event.cost_to_you_cents,
-    cost_to_you_raw: event.cost_to_you_raw ?? null,
-    billing_period_start: event.billing_period_start?.toISOString() ?? null,
-    billing_period_end: event.billing_period_end?.toISOString() ?? null,
-    source: event.source,
-  });
 }
 
 async function ensureIngestion(
@@ -197,7 +179,7 @@ async function ingestNormalizedEventsInternal(
     let updatedCount = 0;
 
     for (const event of params.normalizedEvents) {
-      const rowHash = computeRowHash(event, logicVersion);
+      const rowHash = computeUsageEventRowHash(event, logicVersion);
       const { created } = await upsertUsageEvent(tx, event, rowHash, params.capturedAt, logicVersion);
       if (created) insertedCount += 1;
       else updatedCount += 1;
@@ -223,7 +205,9 @@ export async function ingestUsagePayload(params: {
 
   const baseMetadata = {
     ...(params.metadata ?? {}),
-    table_hash: stableHash(normalizedEvents.map((event) => computeRowHash(event, logicVersion))),
+    table_hash: stableHash(
+      normalizedEvents.map((event) => computeUsageEventRowHash(event, logicVersion)),
+    ),
     total_rows_count: normalizedEvents.length,
   } satisfies Record<string, unknown>;
 
@@ -244,6 +228,45 @@ export async function ingestUsagePayload(params: {
     updatedCount: result.updatedCount,
     usageEventIds: result.usageEventIds,
     wasNew: result.insertedCount > 0,
+  };
+}
+
+export type IngestNormalizedUsageEventsParams = {
+  normalizedEvents: NormalizedUsageEvent[];
+  ingestedAt: Date;
+  rawBlobId?: string | null;
+  contentHash?: string | null;
+  headers?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  logicVersion?: number | null;
+  source?: string | null;
+};
+
+export async function ingestNormalizedUsageEvents(
+  params: IngestNormalizedUsageEventsParams,
+): Promise<{
+  ingestionId: string | null;
+  insertedCount: number;
+  updatedCount: number;
+  usageEventIds: string[];
+}> {
+  const logicVersion = params.logicVersion ?? 1;
+  const result = await ingestNormalizedEventsInternal({
+    normalizedEvents: params.normalizedEvents,
+    capturedAt: params.ingestedAt,
+    rawBlobId: params.rawBlobId ?? null,
+    contentHash: params.contentHash ?? null,
+    headers: params.headers ?? null,
+    metadata: params.metadata ?? null,
+    logicVersion,
+    source: params.source ?? params.normalizedEvents[0]?.source ?? 'unknown',
+  });
+
+  return {
+    ingestionId: result.ingestionId,
+    insertedCount: result.insertedCount,
+    updatedCount: result.updatedCount,
+    usageEventIds: result.usageEventIds,
   };
 }
 
