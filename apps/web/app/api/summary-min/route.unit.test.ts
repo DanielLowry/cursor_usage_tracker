@@ -24,12 +24,13 @@ import { prisma } from '@cursor-usage/db';
 // Mock the prisma client
 vi.mock('@cursor-usage/db', () => ({
   prisma: {
-    snapshot: {
+    usageEvent: {
       count: vi.fn(),
       findFirst: vi.fn(),
     },
-    usageEvent: {
+    ingestion: {
       count: vi.fn(),
+      findFirst: vi.fn(),
     },
     rawBlob: {
       count: vi.fn(),
@@ -51,11 +52,14 @@ describe('/api/summary-min (unit tests)', () => {
 
   it('returns correct shape and values with data', async () => {
     // Mock database responses
-    vi.mocked(prisma.snapshot.count).mockResolvedValue(2);
-    vi.mocked(prisma.snapshot.findFirst).mockResolvedValue({
-      captured_at: new Date('2025-02-15T10:00:00Z'),
-    } as any);
     vi.mocked(prisma.usageEvent.count).mockResolvedValue(5);
+    vi.mocked(prisma.usageEvent.findFirst).mockResolvedValue({
+      last_seen_at: new Date('2025-02-15T10:00:00Z'),
+    } as any);
+    vi.mocked(prisma.ingestion.count).mockResolvedValue(4);
+    vi.mocked(prisma.ingestion.findFirst).mockResolvedValue({
+      ingested_at: new Date('2025-02-15T09:30:00Z'),
+    } as any);
     vi.mocked(prisma.rawBlob.count).mockResolvedValue(3);
     vi.mocked(prisma.rawBlob.findFirst).mockResolvedValue({ captured_at: new Date('2025-02-15T09:00:00Z') } as any);
 
@@ -66,19 +70,23 @@ describe('/api/summary-min (unit tests)', () => {
 
     expect(response.status).toBe(200);
     expect(data).toEqual({
-      snapshotCount: 2,
-      lastSnapshotAt: '2025-02-15T10:00:00.000Z',
+      snapshotCount: 0,
+      lastSnapshotAt: null,
       usageEventCount: 5,
       rawBlobCount: 3,
       lastRawBlobAt: '2025-02-15T09:00:00.000Z',
+      ingestionCount: 4,
+      lastIngestionAt: '2025-02-15T09:30:00.000Z',
+      lastUsageEventSeenAt: '2025-02-15T10:00:00.000Z',
     });
   });
 
   it('returns zero counts when no data exists', async () => {
     // Mock database responses
-    vi.mocked(prisma.snapshot.count).mockResolvedValue(0);
-    vi.mocked(prisma.snapshot.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.usageEvent.count).mockResolvedValue(0);
+    vi.mocked(prisma.usageEvent.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.ingestion.count).mockResolvedValue(0);
+    vi.mocked(prisma.ingestion.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.rawBlob.count).mockResolvedValue(0);
     vi.mocked(prisma.rawBlob.findFirst).mockResolvedValue(null);
 
@@ -94,12 +102,15 @@ describe('/api/summary-min (unit tests)', () => {
       usageEventCount: 0,
       rawBlobCount: 0,
       lastRawBlobAt: null,
+      ingestionCount: 0,
+      lastIngestionAt: null,
+      lastUsageEventSeenAt: null,
     });
   });
 
   it('handles database errors gracefully by returning safe defaults', async () => {
     // Mock database error
-    vi.mocked(prisma.snapshot.count).mockRejectedValue(new Error('Database error'));
+    vi.mocked(prisma.usageEvent.count).mockRejectedValue(new Error('Database error'));
 
     const { GET } = await import('./route');
 
@@ -114,6 +125,9 @@ describe('/api/summary-min (unit tests)', () => {
       usageEventCount: 0,
       rawBlobCount: 0,
       lastRawBlobAt: null,
+      ingestionCount: 0,
+      lastIngestionAt: null,
+      lastUsageEventSeenAt: null,
     });
   });
 });
