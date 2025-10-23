@@ -23,12 +23,19 @@ export type SnapshotPersistInput = {
   totalRowsCount: number;
   capturedAt: Date;
   deltaEvents: NormalizedUsageEvent[];
+  contentHash?: string | null;
+  ingestionHeaders?: Record<string, unknown> | null;
+  ingestionMetadata?: Record<string, unknown> | null;
+  logicVersion?: number | null;
 };
 
 export type SnapshotPersistResult = {
   snapshotId: string | null;
   wasNew: boolean;
   usageEventIds: string[];
+  ingestionId: string | null;
+  insertedCount: number;
+  updatedCount: number;
 };
 
 export interface SnapshotStorePort {

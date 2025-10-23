@@ -253,11 +253,13 @@ This repository provides a small web app (`@cursor-usage/web`) and a worker (`@c
 ## Summary API
 
 - Route: `apps/web/app/api/summary-min/route.ts` returns:
-  - `snapshotCount`: number of rows in `snapshots`
-  - `lastSnapshotAt`: most recent snapshot timestamp
-  - `usageEventCount`: total usage events
-  - `rawBlobCount`: number of raw blobs stored
-  - `lastRawBlobAt`: most recent raw blob timestamp
+  - `snapshotCount` / `lastSnapshotAt`: reserved for future snapshot materialization (currently `0`/`null`).
+  - `usageEventCount`: total deduplicated usage events in the event store.
+  - `ingestionCount`: number of recorded ingestion runs.
+  - `lastIngestionAt`: most recent ingestion timestamp.
+  - `lastUsageEventSeenAt`: last time any usage row was observed.
+  - `rawBlobCount`: number of raw blobs stored.
+  - `lastRawBlobAt`: most recent raw blob timestamp.
 
 6. **Run workers manually**
 
