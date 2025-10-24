@@ -4,8 +4,6 @@
  * Test Suite Overview:
  * - Validates deterministic canonicalization and hashing so that semantically equivalent objects produce the
  *   same hash while actual data mutations do not.
- * - Exercises `shouldWriteSnapshot` decision logic for when to persist a new snapshot based on previous and
- *   next hashes.
  *
  * Assumptions:
  * - `canonicalize` sorts object keys recursively and orders arrays by their canonical JSON representations.
@@ -15,11 +13,9 @@
  * - Equivalent objects with different key or array orderings hash identically, preventing redundant snapshots
  *   for the same logical data.
  * - Different values yield different hashes to ensure real changes trigger persistence.
- * - `shouldWriteSnapshot` returns true only when appropriate (first write or changed hash) so the application
- *   avoids unnecessary database writes.
  */
 import { describe, it, expect } from 'vitest';
-import { canonicalize, stableHash, shouldWriteSnapshot } from './index';
+import { canonicalize, stableHash } from './index';
 
 describe('canonicalize', () => {
   it('sorts object keys recursively', () => {
@@ -48,21 +44,6 @@ describe('stableHash', () => {
     const v1 = { a: 1 };
     const v2 = { a: 2 };
     expect(stableHash(v1)).not.toBe(stableHash(v2));
-  });
-});
-
-describe('shouldWriteSnapshot', () => {
-  it('writes when no previous hash and next exists', () => {
-    expect(shouldWriteSnapshot(null, 'abc')).toBe(true);
-  });
-  it('does not write when next is missing', () => {
-    expect(shouldWriteSnapshot('abc', null)).toBe(false);
-  });
-  it('writes when hashes differ', () => {
-    expect(shouldWriteSnapshot('abc', 'def')).toBe(true);
-  });
-  it('does not write when hashes equal', () => {
-    expect(shouldWriteSnapshot('same', 'same')).toBe(false);
   });
 });
 

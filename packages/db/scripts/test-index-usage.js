@@ -22,18 +22,21 @@ try {
       return text;
     };
 
-    // 1) usage_events by captured_at
-    const planUsageEvents = await explain("SELECT * FROM usage_events WHERE captured_at > now() - interval '1 day' ORDER BY captured_at DESC LIMIT 1");
+    // 1) usage_event by billing period composite
+    const planUsageEvents = await explain(
+      "SELECT * FROM usage_event WHERE billing_period_start IS NULL AND billing_period_end IS NULL ORDER BY last_seen_at DESC LIMIT 1",
+    );
     if (!/Index/i.test(planUsageEvents)) {
-      console.error('Expected index usage for usage_events(captured_at). Plan:', planUsageEvents);
+      console.error('Expected index usage for usage_event(billing_period_start, billing_period_end). Plan:', planUsageEvents);
       process.exit(1);
     }
 
-    // 2) snapshots by unique composite
-    const planSnapshots = await explain("SELECT * FROM snapshots WHERE billing_period_start IS NULL AND billing_period_end IS NULL AND table_hash = ''");
-    // We cannot guarantee a unique index is chosen without data, but ensure an Index appears
-    if (!/Index/i.test(planSnapshots)) {
-      console.error('Expected index usage for snapshots composite index. Plan:', planSnapshots);
+    // 2) ingestion by ingested_at index
+    const planIngestion = await explain(
+      "SELECT * FROM ingestion WHERE ingested_at > now() - interval '1 day' ORDER BY ingested_at DESC LIMIT 1",
+    );
+    if (!/Index/i.test(planIngestion)) {
+      console.error('Expected index usage for ingestion(ingested_at). Plan:', planIngestion);
       process.exit(1);
     }
 

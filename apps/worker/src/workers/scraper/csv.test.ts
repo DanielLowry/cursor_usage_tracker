@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { parseUsageCsv } from './csv';
+import { parseUsageCsv } from './core/csv';
 
 describe('parseUsageCsv', () => {
   it('parses CSV fixtures into rows and billing period', () => {

@@ -1,7 +1,8 @@
-// Relative path: apps/worker/src/workers/scraper/csv.ts
+// Relative path: apps/worker/src/workers/scraper/core/csv.ts
 // CSV parsing utilities for Cursor usage exports. Converts the raw CSV text
 // into a minimal structured shape that downstream normalization can consume.
 import { parse as parseCsv } from 'csv-parse/sync';
+import { USAGE_CSV_PARSE_OPTIONS } from '../lib/csv';
 
 export type UsageCsvRow = {
   captured_at: Date;
@@ -26,14 +27,10 @@ export type UsageCsvCapture = {
  */
 export function parseUsageCsv(csvText: string): UsageCsvCapture | null {
   try {
-    const records: Array<Record<string, string>> = parseCsv(csvText, {
-      columns: true,
-      skip_empty_lines: true,
-      trim: true,
-    });
+    const records: Array<Record<string, string>> = parseCsv(csvText, USAGE_CSV_PARSE_OPTIONS);
 
     if (!Array.isArray(records) || records.length === 0) {
-      return { billing_period: undefined, rows: [] };
+      return { rows: [] };
     }
 
     const firstDateIso = records[0]?.['Date'];
@@ -51,7 +48,9 @@ export function parseUsageCsv(csvText: string): UsageCsvCapture | null {
       cost_to_you: (record['Cost to you'] ?? record['Cost to you (you)'] ?? record['cost_to_you'] ?? '') as string,
     }));
 
-    return { billing_period: period, rows };
+    const capture: UsageCsvCapture = { rows };
+    if (period) capture.billing_period = period;
+    return capture;
   } catch (error) {
     return null;
   }

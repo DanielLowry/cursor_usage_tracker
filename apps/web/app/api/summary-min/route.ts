@@ -14,6 +14,9 @@ export async function GET() {
       usageEventCount: 0,
       rawBlobCount: 0,
       lastRawBlobAt: null,
+      ingestionCount: 0,
+      lastIngestionAt: null,
+      lastUsageEventSeenAt: null,
     });
   }
 
@@ -21,15 +24,20 @@ export async function GET() {
   try {
     const { prisma } = await import('@cursor-usage/db');
 
-    const snapshotCount = await prisma.snapshot.count();
-
-    const lastSnapshot = await prisma.snapshot.findFirst({
-      orderBy: { captured_at: 'desc' },
-      select: { captured_at: true },
-    });
-    const lastSnapshotAt = lastSnapshot?.captured_at?.toISOString() || null;
-
     const usageEventCount = await prisma.usageEvent.count();
+
+    const lastUsageEvent = await prisma.usageEvent.findFirst({
+      orderBy: { last_seen_at: 'desc' },
+      select: { last_seen_at: true },
+    });
+    const lastUsageEventSeenAt = lastUsageEvent?.last_seen_at?.toISOString() || null;
+
+    const ingestionCount = await prisma.ingestion.count();
+    const lastIngestion = await prisma.ingestion.findFirst({
+      orderBy: { ingested_at: 'desc' },
+      select: { ingested_at: true },
+    });
+    const lastIngestionAt = lastIngestion?.ingested_at?.toISOString() || null;
 
     // Raw blob stats
     const rawBlobCount = await prisma.rawBlob.count();
@@ -39,9 +47,27 @@ export async function GET() {
     });
     const lastRawBlobAt = lastRawBlob?.captured_at?.toISOString() || null;
 
-    return NextResponse.json({ snapshotCount, lastSnapshotAt, usageEventCount, rawBlobCount, lastRawBlobAt });
+    return NextResponse.json({
+      snapshotCount: 0,
+      lastSnapshotAt: null,
+      usageEventCount,
+      rawBlobCount,
+      lastRawBlobAt,
+      ingestionCount,
+      lastIngestionAt,
+      lastUsageEventSeenAt,
+    });
   } catch (error) {
     console.error('Error fetching summary data:', error);
-    return NextResponse.json({ snapshotCount: 0, lastSnapshotAt: null, usageEventCount: 0, rawBlobCount: 0, lastRawBlobAt: null });
+    return NextResponse.json({
+      snapshotCount: 0,
+      lastSnapshotAt: null,
+      usageEventCount: 0,
+      rawBlobCount: 0,
+      lastRawBlobAt: null,
+      ingestionCount: 0,
+      lastIngestionAt: null,
+      lastUsageEventSeenAt: null,
+    });
   }
 }

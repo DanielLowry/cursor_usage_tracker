@@ -34,19 +34,24 @@ describe('DashboardPage', () => {
   });
 
   it('renders summary text with API data', async () => {
-    const timestamp = '2025-02-15T10:00:00.000Z';
+    const usageTimestamp = '2025-02-15T10:00:00.000Z';
+    const ingestionTimestamp = '2025-02-15T09:45:00.000Z';
     vi.spyOn(global, 'fetch' as never).mockResolvedValue({
       ok: true,
-      json: async () => ({ snapshotCount: 3, lastSnapshotAt: timestamp, usageEventCount: 7 }),
+      json: async () => ({
+        usageEventCount: 7,
+        ingestionCount: 3,
+        lastIngestionAt: ingestionTimestamp,
+        lastUsageEventSeenAt: usageTimestamp,
+      }),
     } as never);
 
     const ui = await DashboardPage();
     const html = renderToStaticMarkup(ui as JSX.Element);
 
-    expect(getTestIdValue(html, 'snapshot-count')).toBe('3');
     expect(getTestIdValue(html, 'usage-event-count')).toBe('7');
-    // Component formats the timestamp with toLocaleString(); assert against that localized value
-    expect(getTestIdValue(html, 'last-snapshot-at')).toBe(new Date(timestamp).toLocaleString());
+    expect(getTestIdValue(html, 'ingestion-count')).toBe('3');
+    expect(getTestIdValue(html, 'last-usage-event-at')).toBe(new Date(usageTimestamp).toLocaleString());
   });
 
   it('renders fallback values if API fails', async () => {
@@ -55,8 +60,8 @@ describe('DashboardPage', () => {
     const ui = await DashboardPage();
     const html = renderToStaticMarkup(ui as JSX.Element);
 
-    expect(getTestIdValue(html, 'snapshot-count')).toBe('0');
     expect(getTestIdValue(html, 'usage-event-count')).toBe('0');
-    expect(getTestIdValue(html, 'last-snapshot-at')).toBe('—');
+    expect(getTestIdValue(html, 'ingestion-count')).toBe('0');
+    expect(getTestIdValue(html, 'last-usage-event-at')).toBe('—');
   });
 });

@@ -20,14 +20,14 @@ export type ScraperErrorOptions = {
 export class ScraperError extends Error {
   readonly code: ScraperErrorCode;
   readonly cause?: unknown;
-  readonly details?: Record<string, unknown>;
+  readonly details: Record<string, unknown> | undefined;
 
   constructor(code: ScraperErrorCode, message: string, options: ScraperErrorOptions = {}) {
     super(message);
     this.name = 'ScraperError';
     this.code = code;
     this.cause = options.cause;
-    this.details = options.details;
+    this.details = options.details ?? undefined;
   }
 }
 
