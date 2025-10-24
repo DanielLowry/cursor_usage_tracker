@@ -4,12 +4,8 @@
  * Test Purpose:
  * - Validates that the scraper orchestrator normalizes CSV rows, computes row hashes,
  *   and delegates persistence to the usage event store in an idempotent way.
- * - Validates that the scraper orchestrator normalizes CSV rows, computes row hashes,
- *   and delegates persistence to the usage event store in an idempotent way.
  *
  * Assumptions:
- * - The in-memory fake usage event store mimics `row_hash` uniqueness semantics.
- * - The CSV fixture matches the minimal header set expected by the parser.
  * - The in-memory fake usage event store mimics `row_hash` uniqueness semantics.
  * - The CSV fixture matches the minimal header set expected by the parser.
  *
@@ -25,6 +21,7 @@ import type {
   Logger,
   UsageEventIngestInput,
   UsageEventIngestResult,
+  UsageEventRecordFailureInput,
   UsageEventStorePort,
 } from './scraper/ports';
 import { computeSha256 } from './scraper/lib/contentHash';
@@ -71,6 +68,7 @@ class FakeFetchPort implements FetchPort {
 
 class FakeUsageEventStore implements UsageEventStorePort {
   public ingestions: UsageEventIngestInput[] = [];
+  public failures: UsageEventRecordFailureInput[] = [];
   private seen = new Set<string>();
   private seq = 0;
 
@@ -93,6 +91,12 @@ class FakeUsageEventStore implements UsageEventStorePort {
       duplicateCount,
       rowHashes: input.events.map((event) => event.rowHash),
     };
+  }
+
+  async recordFailure(input: UsageEventRecordFailureInput): Promise<{ ingestionId: string | null }> {
+    this.failures.push(input);
+    this.seq += 1;
+    return { ingestionId: `failure-${this.seq}` };
   }
 }
 

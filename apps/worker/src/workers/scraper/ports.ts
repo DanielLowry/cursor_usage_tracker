@@ -28,8 +28,21 @@ export type UsageEventIngestResult = {
   rowHashes: string[];
 };
 
+export type UsageEventRecordFailureInput = {
+  source: string;
+  ingestedAt: Date;
+  contentHash?: string | null;
+  headers?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  logicVersion?: number | null;
+  rawBlobId?: string | null;
+  size?: number | null;
+  error: { code: string; message: string };
+};
+
 export interface UsageEventStorePort {
   ingest(input: UsageEventIngestInput): Promise<UsageEventIngestResult>;
+  recordFailure(input: UsageEventRecordFailureInput): Promise<{ ingestionId: string | null }>;
 }
 
 export interface ClockPort {

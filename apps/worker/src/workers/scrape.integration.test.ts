@@ -14,12 +14,13 @@
  * - The second run reuses the same data, resulting in zero new rows and a new
  *   ingestion that only updates `last_seen_at`.
  */
+import * as fs from 'fs';
+import * as path from 'path';
 import { beforeAll, afterAll, afterEach, describe, it, expect } from 'vitest';
 import prisma from '../../../../packages/db/src/client';
 import { ScraperOrchestrator } from './scraper';
 import { PrismaUsageEventStore } from './scraper/infra/eventStore';
 import type { ClockPort, FetchPort, Logger } from './scraper/ports';
-import { computeSha256 } from './scraper/lib/contentHash';
 
 class TestClock implements ClockPort {
   constructor(private readonly fixedNow: Date) {}
@@ -28,18 +29,24 @@ class TestClock implements ClockPort {
   }
 }
 
-class FakeFetchPort implements FetchPort {
-  constructor(private readonly payload: Buffer) {}
-  async fetchCsvExport(): Promise<Buffer> {
-    return Buffer.from(this.payload);
-  }
-}
-
 class TestLogger implements Logger {
   info() {}
   debug() {}
   warn() {}
   error() {}
+}
+
+const FIXTURE_DIR = path.resolve(__dirname, '../../../../tests/fixtures/usage');
+
+function loadFixture(name: string): Buffer {
+  return fs.readFileSync(path.join(FIXTURE_DIR, name));
+}
+
+class FixtureFetchPort implements FetchPort {
+  constructor(private readonly fixtureName: string) {}
+  async fetchCsvExport(): Promise<Buffer> {
+    return loadFixture(this.fixtureName);
+  }
 }
 
 async function resetTables() {
@@ -63,53 +70,58 @@ describeIfDb('ScraperOrchestrator integration', () => {
     await prisma.$disconnect();
   });
 
-  it('writes usage events on first run and dedupes on rerun', async () => {
-    const csvFixture = Buffer.from(
-      [
-        'Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost,Cost to you',
-        '2025-02-01,gpt-4o,10,5,0,15,30,$0.10,$0.10',
-        '2025-02-02,gpt-4o-mini,0,0,0,5,5,$0.05,$0.05',
-      ].join('\n'),
-      'utf8',
-    );
-    const expectedHash = computeSha256(csvFixture);
-    const fetchPort = new FakeFetchPort(csvFixture);
-    const clock = new TestClock(new Date('2025-03-01T00:00:00Z'));
+  it('ingests fixtures idempotently and records failures', async () => {
     const logger = new TestLogger();
     const eventStore = new PrismaUsageEventStore({ logger });
+    const clock = new TestClock(new Date('2025-03-01T00:00:00Z'));
 
-    const orchestrator = new ScraperOrchestrator({
-      fetchPort,
-      eventStore,
-      clock,
-      logger,
-      csvSourceUrl: 'https://example.com/usage.csv',
-      ingestionSource: 'cursor_csv',
-      logicVersion: 1,
-    });
+    async function runFixture(name: string) {
+      const orchestrator = new ScraperOrchestrator({
+        fetchPort: new FixtureFetchPort(name),
+        eventStore,
+        clock,
+        logger,
+        csvSourceUrl: 'https://example.com/usage.csv',
+        ingestionSource: 'cursor_csv',
+        logicVersion: 1,
+      });
 
-    const first = await orchestrator.run();
-    expect(first.contentHash).toBe(expectedHash);
-    expect(first.insertedCount).toBe(2);
-    expect(first.duplicateCount).toBe(0);
+      return orchestrator.run();
+    }
 
-    const second = await orchestrator.run();
-    expect(second.insertedCount).toBe(0);
-    expect(second.duplicateCount).toBe(2);
+    const baseline = await runFixture('A.csv');
+    expect(baseline.insertedCount).toBe(3);
+    expect(baseline.duplicateCount).toBe(0);
+
+    const rerun = await runFixture('A.csv');
+    expect(rerun.insertedCount).toBe(0);
+    expect(rerun.duplicateCount).toBe(3);
+
+    const reorder = await runFixture('A_reordered.csv');
+    expect(reorder.insertedCount).toBe(0);
+    expect(reorder.duplicateCount).toBe(3);
+
+    const plusOne = await runFixture('A_plus1.csv');
+    expect(plusOne.insertedCount).toBe(1);
+    expect(plusOne.duplicateCount).toBe(3);
+
+    await expect(runFixture('A_corrupt.csv')).rejects.toThrowError('failed to parse usage csv');
+
+    const events = await prisma.usageEvent.findMany({ orderBy: { row_hash: 'asc' } });
+    expect(events.length).toBe(4);
 
     const ingestions = await prisma.ingestion.findMany({ orderBy: { ingested_at: 'asc' } });
-    expect(ingestions.length).toBe(2);
-    expect(ingestions[0]?.content_hash).toBe(expectedHash);
-    expect(ingestions[1]?.content_hash).toBe(expectedHash);
+    expect(ingestions.at(-1)?.status).toBe('failed');
+    expect(ingestions.at(-1)?.metadata).toMatchObject({ row_count: 0 });
 
-    const events = await prisma.usageEvent.findMany();
-    expect(events.length).toBe(2);
-    expect(
-      events.every((event) => {
-        const firstSeen = event.first_seen_at?.getTime() ?? 0;
-        const lastSeen = event.last_seen_at?.getTime() ?? 0;
-        return firstSeen <= lastSeen;
-      }),
-    ).toBe(true);
+    const successfulIngestions = ingestions.filter((ingestion) => ingestion.status === 'completed');
+    expect(successfulIngestions.length).toBeGreaterThanOrEqual(1);
+    for (const ingestion of successfulIngestions) {
+      expect(ingestion.headers).toMatchObject({ 'content-type': 'text/csv' });
+    }
+
+    const metadataSamples = successfulIngestions.map((ingestion) => ingestion.metadata ?? {});
+    expect(metadataSamples.some((metadata) => (metadata as any).row_count === 3)).toBe(true);
+    expect(metadataSamples.some((metadata) => (metadata as any).bytes === loadFixture('A.csv').length)).toBe(true);
   });
 });

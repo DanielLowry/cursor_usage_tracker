@@ -1,11 +1,12 @@
 // Relative path: apps/worker/src/workers/scraper/infra/eventStore.ts
 // Adapter responsible for persisting normalized usage events plus ingestion metadata.
-import { ingestNormalizedUsageEvents } from '../../../../../../packages/db/src/eventStore';
+import { ingestNormalizedUsageEvents, recordFailedIngestion } from '../../../../../../packages/db/src/eventStore';
 import type {
   Logger,
   UsageEventIngestInput,
   UsageEventIngestResult,
   UsageEventStorePort,
+  UsageEventRecordFailureInput,
 } from '../ports';
 import { ScraperError, isScraperError } from '../errors';
 
@@ -56,6 +57,34 @@ export class PrismaUsageEventStore implements UsageEventStorePort {
     } catch (err) {
       if (isScraperError(err)) throw err;
       throw new ScraperError('IO_ERROR', 'failed to persist usage events', { cause: err });
+    }
+  }
+
+  async recordFailure(input: UsageEventRecordFailureInput): Promise<{ ingestionId: string | null }> {
+    const logicVersion = input.logicVersion ?? this.options.defaultLogicVersion ?? 1;
+
+    try {
+      const result = await recordFailedIngestion({
+        source: input.source,
+        ingestedAt: input.ingestedAt,
+        contentHash: input.contentHash ?? null,
+        headers: input.headers ?? null,
+        metadata: input.metadata ?? null,
+        rawBlobId: input.rawBlobId ?? null,
+        size: input.size ?? null,
+        logicVersion,
+        error: input.error,
+      });
+
+      this.options.logger.warn('ingestion.failed', {
+        ingestionId: result.ingestionId,
+        error: input.error,
+      });
+
+      return result;
+    } catch (err) {
+      if (isScraperError(err)) throw err;
+      throw new ScraperError('IO_ERROR', 'failed to record ingestion failure', { cause: err });
     }
   }
 }

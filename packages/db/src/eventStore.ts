@@ -21,6 +21,7 @@ type EnsureIngestionParams = {
   headers: JsonInput;
   metadata: JsonInput;
   rawBlobId: string | null;
+  status: 'completed' | 'failed';
 };
 
 function toJsonInput(value: Record<string, unknown> | null | undefined): JsonInput {
@@ -42,7 +43,7 @@ async function ensureIngestion(
         content_hash: params.contentHash,
         headers: params.headers,
         metadata: params.metadata,
-        status: 'completed',
+        status: params.status,
         raw_blob_id: params.rawBlobId,
       },
     });
@@ -55,80 +56,67 @@ async function ensureIngestion(
       const existing = await tx.ingestion.findFirst({
         where: { content_hash: params.contentHash },
       });
-      if (existing) return existing;
+      if (existing) {
+        await tx.ingestion.update({
+          where: { id: existing.id },
+          data: {
+            status: params.status,
+            headers: params.headers,
+            metadata: params.metadata,
+            ingested_at: params.ingestedAt,
+            raw_blob_id: params.rawBlobId,
+          },
+        });
+        return tx.ingestion.findUniqueOrThrow({ where: { id: existing.id } });
+      }
     }
     throw err;
   }
 }
 
-async function persistUsageEvent(
-  tx: Prisma.TransactionClient,
-  item: EventWithHash,
+function buildUsageEventCreateData(
+  event: NormalizedUsageEvent,
+  rowHash: string,
   ingestedAt: Date,
   logicVersion: number,
-): Promise<boolean> {
-  const existing = await tx.usageEvent.findUnique({
-    where: { row_hash: item.rowHash },
-    select: { row_hash: true },
-  });
-
-  if (existing) {
-    await tx.usageEvent.update({
-      where: { row_hash: item.rowHash },
-      data: {
-        last_seen_at: ingestedAt,
-        logic_version: logicVersion,
-      },
-    });
-    return false;
-  }
-
-  const event = item.event;
-  await tx.usageEvent.create({
-    data: {
-      row_hash: item.rowHash,
-      captured_at: event.captured_at,
-      kind: event.kind ?? null,
-      model: event.model,
-      max_mode: event.max_mode ?? null,
-      input_with_cache_write_tokens: event.input_with_cache_write_tokens,
-      input_without_cache_write_tokens: event.input_without_cache_write_tokens,
-      cache_read_tokens: event.cache_read_tokens,
-      output_tokens: event.output_tokens,
-      total_tokens: event.total_tokens,
-      api_cost_cents: event.api_cost_cents,
-      api_cost_raw: event.api_cost_raw ?? null,
-      cost_to_you_cents: event.cost_to_you_cents,
-      cost_to_you_raw: event.cost_to_you_raw ?? null,
-      billing_period_start: event.billing_period_start ?? null,
-      billing_period_end: event.billing_period_end ?? null,
-      source: event.source,
-      first_seen_at: ingestedAt,
-      last_seen_at: ingestedAt,
-      logic_version: logicVersion,
-    },
-  });
-
-  return true;
+) {
+  return {
+    row_hash: rowHash,
+    captured_at: event.captured_at,
+    kind: event.kind ?? null,
+    model: event.model,
+    max_mode: event.max_mode ?? null,
+    input_with_cache_write_tokens: event.input_with_cache_write_tokens,
+    input_without_cache_write_tokens: event.input_without_cache_write_tokens,
+    cache_read_tokens: event.cache_read_tokens,
+    output_tokens: event.output_tokens,
+    total_tokens: event.total_tokens,
+    api_cost_cents: event.api_cost_cents,
+    api_cost_raw: event.api_cost_raw ?? null,
+    cost_to_you_cents: event.cost_to_you_cents,
+    cost_to_you_raw: event.cost_to_you_raw ?? null,
+    billing_period_start: event.billing_period_start ?? null,
+    billing_period_end: event.billing_period_end ?? null,
+    source: event.source,
+    first_seen_at: ingestedAt,
+    last_seen_at: ingestedAt,
+    logic_version: logicVersion,
+  } satisfies Prisma.UsageEventCreateManyInput;
 }
 
 async function linkToIngestion(
   tx: Prisma.TransactionClient,
-  rowHash: string,
+  rowHashes: string[],
   ingestionId: string,
 ): Promise<void> {
-  await tx.eventIngestion.upsert({
-    where: {
-      row_hash_ingestion_id: {
-        row_hash: rowHash,
-        ingestion_id: ingestionId,
-      },
-    },
-    update: {},
-    create: {
+  if (rowHashes.length === 0) return;
+
+  await tx.eventIngestion.createMany({
+    data: rowHashes.map((rowHash) => ({
       row_hash: rowHash,
       ingestion_id: ingestionId,
-    },
+    })),
+    skipDuplicates: true,
   });
 }
 
@@ -189,29 +177,50 @@ export async function ingestNormalizedUsageEvents(
       headers: toJsonInput(params.headers ?? null),
       metadata: toJsonInput(metadata),
       rawBlobId: params.rawBlobId ?? null,
+      status: 'completed',
     });
 
     if (rows.length === 0) {
       return { ingestionId: ingestion.id, insertedCount: 0, updatedCount: 0, usageEventIds: [] };
     }
 
-    let insertedCount = 0;
-    let updatedCount = 0;
-    const usageEventIds: string[] = [];
+    const rowHashes = rows.map((row) => row.rowHash);
 
-    for (const row of rows) {
-      const created = await persistUsageEvent(tx, row, params.ingestedAt, logicVersion);
-      usageEventIds.push(row.rowHash);
-      if (created) insertedCount += 1;
-      else updatedCount += 1;
-      await linkToIngestion(tx, row.rowHash, ingestion.id);
+    const existingRows = await tx.usageEvent.findMany({
+      where: { row_hash: { in: rowHashes } },
+      select: { row_hash: true },
+    });
+    const existingSet = new Set(existingRows.map((row) => row.row_hash));
+
+    const newRows = rows.filter((row) => !existingSet.has(row.rowHash));
+    const duplicateRows = rows.filter((row) => existingSet.has(row.rowHash));
+
+    if (newRows.length > 0) {
+      await tx.usageEvent.createMany({
+        data: newRows.map(({ event, rowHash }) =>
+          buildUsageEventCreateData(event, rowHash, params.ingestedAt, logicVersion),
+        ),
+        skipDuplicates: true,
+      });
     }
+
+    if (duplicateRows.length > 0) {
+      await tx.usageEvent.updateMany({
+        where: { row_hash: { in: duplicateRows.map((row) => row.rowHash) } },
+        data: {
+          last_seen_at: params.ingestedAt,
+          logic_version: logicVersion,
+        },
+      });
+    }
+
+    await linkToIngestion(tx, rowHashes, ingestion.id);
 
     return {
       ingestionId: ingestion.id,
-      insertedCount,
-      updatedCount,
-      usageEventIds,
+      insertedCount: newRows.length,
+      updatedCount: duplicateRows.length,
+      usageEventIds: rowHashes,
     };
   });
 }
@@ -242,4 +251,41 @@ export async function ingestUsagePayload(
     logicVersion: params.logicVersion ?? null,
     source: params.source ?? normalizedEvents[0]?.source ?? 'network_json',
   });
+}
+
+export type RecordFailedIngestionParams = {
+  source: string;
+  ingestedAt: Date;
+  contentHash?: string | null;
+  headers?: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  rawBlobId?: string | null;
+  logicVersion?: number | null;
+  size?: number | null;
+  error: { code: string; message: string };
+};
+
+export async function recordFailedIngestion(params: RecordFailedIngestionParams): Promise<{ ingestionId: string | null }> {
+  const metadata = {
+    ...(params.metadata ?? {}),
+    row_count: 0,
+    row_hashes: [] as string[],
+    logic_version: params.logicVersion ?? 1,
+    bytes: params.size ?? null,
+    error: params.error,
+  } satisfies Record<string, unknown>;
+
+  const ingestion = await prisma.ingestion.create({
+    data: {
+      source: params.source,
+      ingested_at: params.ingestedAt,
+      content_hash: params.contentHash ?? null,
+      headers: toJsonInput(params.headers ?? null),
+      metadata: toJsonInput(metadata),
+      status: 'failed',
+      raw_blob_id: params.rawBlobId ?? null,
+    },
+  });
+
+  return { ingestionId: ingestion.id };
 }

@@ -5,6 +5,7 @@ export type ScraperErrorCode =
   | 'FETCH_ERROR'
   | 'CSV_PARSE_ERROR'
   | 'VALIDATION_ERROR'
+  | 'NORMALIZE_ERROR'
   | 'DB_CONFLICT'
   | 'IO_ERROR';
 
