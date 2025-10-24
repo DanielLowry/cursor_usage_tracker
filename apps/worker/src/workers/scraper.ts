@@ -7,6 +7,7 @@
 import { Queue } from 'bullmq';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createHash } from 'crypto';
 import { z } from 'zod';
 import { getRedis } from '@cursor-usage/redis';
 import { computeUsageEventRowHash } from './scraper/lib/rowHash';
