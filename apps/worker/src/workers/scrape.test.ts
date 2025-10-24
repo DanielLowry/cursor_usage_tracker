@@ -4,8 +4,12 @@
  * Test Purpose:
  * - Validates that the scraper orchestrator normalizes CSV rows, computes row hashes,
  *   and delegates persistence to the usage event store in an idempotent way.
+ * - Validates that the scraper orchestrator normalizes CSV rows, computes row hashes,
+ *   and delegates persistence to the usage event store in an idempotent way.
  *
  * Assumptions:
+ * - The in-memory fake usage event store mimics `row_hash` uniqueness semantics.
+ * - The CSV fixture matches the minimal header set expected by the parser.
  * - The in-memory fake usage event store mimics `row_hash` uniqueness semantics.
  * - The CSV fixture matches the minimal header set expected by the parser.
  *
@@ -14,7 +18,6 @@
  *   demonstrating end-to-end dedupe without touching an actual database.
  */
 import { describe, it, expect } from 'vitest';
-import { createHash } from 'crypto';
 import { ScraperOrchestrator, type ScrapeResult } from './scraper';
 import type {
   ClockPort,
@@ -24,6 +27,7 @@ import type {
   UsageEventIngestResult,
   UsageEventStorePort,
 } from './scraper/ports';
+import { computeSha256 } from './scraper/lib/contentHash';
 
 class TestClock implements ClockPort {
   constructor(private readonly fixedNow: Date) {}
@@ -35,7 +39,14 @@ class TestClock implements ClockPort {
 class TestLogger implements Logger {
   public logs: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
   private push(level: string, message: string, context?: Record<string, unknown>) {
-    this.logs.push({ level, message, context });
+    const entry: { level: string; message: string; context?: Record<string, unknown> } = {
+      level,
+      message,
+    };
+    if (context !== undefined) {
+      entry.context = context;
+    }
+    this.logs.push(entry);
   }
   debug(message: string, context?: Record<string, unknown>) {
     this.push('debug', message, context);
@@ -94,7 +105,7 @@ describe('ScraperOrchestrator (unit)', () => {
     ].join('\n'),
     'utf8',
   );
-  const expectedHash = createHash('sha256').update(csvFixture).digest('hex');
+  const expectedHash = computeSha256(csvFixture);
 
   function buildOrchestrator(store: FakeUsageEventStore, logger: TestLogger) {
     const fetchPort = new FakeFetchPort(csvFixture);
@@ -126,7 +137,9 @@ describe('ScraperOrchestrator (unit)', () => {
     expect(first.rowHashes.length).toBe(2);
 
     expect(store.ingestions).toHaveLength(1);
-    const [ingestInput] = store.ingestions;
+    const ingestInput = store.ingestions.at(0);
+    expect(ingestInput).toBeDefined();
+    if (!ingestInput) throw new Error('expected ingestion input');
     expect(ingestInput.events.length).toBe(2);
     expect(ingestInput.metadata?.row_count).toBe(2);
     expect(ingestInput.headers['content-type']).toBe('text/csv');

@@ -15,11 +15,11 @@
  *   ingestion that only updates `last_seen_at`.
  */
 import { beforeAll, afterAll, afterEach, describe, it, expect } from 'vitest';
-import { createHash } from 'crypto';
 import prisma from '../../../../packages/db/src/client';
 import { ScraperOrchestrator } from './scraper';
-import { PrismaUsageEventStore } from './scraper/adapters/eventStore';
+import { PrismaUsageEventStore } from './scraper/infra/eventStore';
 import type { ClockPort, FetchPort, Logger } from './scraper/ports';
+import { computeSha256 } from './scraper/lib/contentHash';
 
 class TestClock implements ClockPort {
   constructor(private readonly fixedNow: Date) {}
@@ -72,7 +72,7 @@ describeIfDb('ScraperOrchestrator integration', () => {
       ].join('\n'),
       'utf8',
     );
-    const expectedHash = createHash('sha256').update(csvFixture).digest('hex');
+    const expectedHash = computeSha256(csvFixture);
     const fetchPort = new FakeFetchPort(csvFixture);
     const clock = new TestClock(new Date('2025-03-01T00:00:00Z'));
     const logger = new TestLogger();
@@ -104,6 +104,12 @@ describeIfDb('ScraperOrchestrator integration', () => {
 
     const events = await prisma.usageEvent.findMany();
     expect(events.length).toBe(2);
-    expect(events.every((event) => event.first_seen_at.getTime() <= event.last_seen_at.getTime())).toBe(true);
+    expect(
+      events.every((event) => {
+        const firstSeen = event.first_seen_at?.getTime() ?? 0;
+        const lastSeen = event.last_seen_at?.getTime() ?? 0;
+        return firstSeen <= lastSeen;
+      }),
+    ).toBe(true);
   });
 });

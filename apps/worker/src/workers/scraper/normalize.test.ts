@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { normalizeCapturedPayload } from './normalize';
+import { normalizeCapturedPayload } from './core/normalize';
 
 describe('normalizeCapturedPayload', () => {
   it('normalizes fixture payload into usage events', () => {

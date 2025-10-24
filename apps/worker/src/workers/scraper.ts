@@ -10,13 +10,14 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import { z } from 'zod';
 import { getRedis } from '@cursor-usage/redis';
-import { computeUsageEventRowHash } from '../../../../packages/shared/ingest/src';
-import { parseUsageCsv } from './scraper/csv';
-import { normalizeCapturedPayload } from './scraper/normalize';
+import { computeUsageEventRowHash } from './scraper/lib/rowHash';
+import { computeSha256 } from './scraper/lib/contentHash';
+import { parseUsageCsv } from './scraper/core/csv';
+import { normalizeCapturedPayload } from './scraper/core/normalize';
 import { ScraperError, isScraperError } from './scraper/errors';
 import type { ClockPort, FetchPort, Logger, NormalizedUsageEventWithHash, UsageEventStorePort } from './scraper/ports';
-import { CursorCsvFetchAdapter, DEFAULT_USAGE_EXPORT_URL } from './scraper/adapters/fetch';
-import { PrismaUsageEventStore } from './scraper/adapters/eventStore';
+import { CursorCsvFetchAdapter, DEFAULT_USAGE_EXPORT_URL } from './scraper/infra/fetch';
+import { PrismaUsageEventStore } from './scraper/infra/eventStore';
 
 // Exported BullMQ queue used by the worker process elsewhere to enqueue scraping jobs.
 const connection = getRedis();
@@ -108,7 +109,7 @@ export class ScraperOrchestrator {
     logger.debug('scrape.fetch.completed', { bytes });
 
     const ingestedAt = clock.now();
-    const contentHash = createHash('sha256').update(csvBuffer).digest('hex');
+    const contentHash = computeSha256(csvBuffer);
 
     const csvText = csvBuffer.toString('utf8');
     const parsedCsv = parseUsageCsv(csvText);

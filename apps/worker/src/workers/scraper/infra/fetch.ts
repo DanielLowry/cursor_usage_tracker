@@ -1,4 +1,4 @@
-// Relative path: apps/worker/src/workers/scraper/adapters/fetch.ts
+// Relative path: apps/worker/src/workers/scraper/infra/fetch.ts
 // Adapter that fetches Cursor usage CSV using a local auth state.
 import { AuthSession } from '../../../../../../packages/shared/cursor-auth/src/AuthSession';
 import {

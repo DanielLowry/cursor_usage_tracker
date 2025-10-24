@@ -1,6 +1,6 @@
-// Relative path: apps/worker/src/workers/scraper/adapters/eventStore.ts
+// Relative path: apps/worker/src/workers/scraper/infra/eventStore.ts
 // Adapter responsible for persisting normalized usage events plus ingestion metadata.
-import { ingestNormalizedUsageEvents } from '../../../../../../packages/db/src/snapshots';
+import { ingestNormalizedUsageEvents } from '../../../../../../packages/db/src/eventStore';
 import type {
   Logger,
   UsageEventIngestInput,
@@ -34,8 +34,6 @@ export class PrismaUsageEventStore implements UsageEventStorePort {
         metadata: {
           ...(input.metadata ?? {}),
           bytes: input.size,
-          logic_version: logicVersion,
-          row_hashes: input.events.map((event) => event.rowHash),
         },
         logicVersion,
         source: input.source,

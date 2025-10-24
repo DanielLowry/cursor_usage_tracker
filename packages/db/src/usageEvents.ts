@@ -1,4 +1,4 @@
-import { ingestUsagePayload } from './snapshots';
+import { ingestUsagePayload } from './eventStore';
 
 export async function insertUsageEventsFromNetworkJson(
   payload: unknown,

@@ -6,8 +6,12 @@
       "@cursor-usage/ingest": ["../shared/ingest/src/index.ts"],
       "@cursor-usage/ingest/*": ["../shared/ingest/src/*"],
       "@cursor-usage/hash": ["../shared/hash/src/index.ts"],
-      "@cursor-usage/hash/*": ["../shared/hash/src/*"]
-    }
+      "@cursor-usage/hash/*": ["../shared/hash/src/*"],
+      "@cursor-usage/normalize": ["../shared/normalize/src/index.ts"],
+      "@cursor-usage/normalize/*": ["../shared/normalize/src/*"]
+    },
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true
   },
   "include": ["src", "prisma", "scripts", "tsup.config.ts"],
   "exclude": ["node_modules", "dist"]

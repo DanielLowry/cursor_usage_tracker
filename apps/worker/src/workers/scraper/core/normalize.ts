@@ -1,9 +1,9 @@
-// Relative path: apps/worker/src/workers/scraper/normalize.ts
+// Relative path: apps/worker/src/workers/scraper/core/normalize.ts
 // Normalization entrypoints translate parsed payloads into a canonical
-// `NormalizedUsageEvent[]` understood by hashing and delta logic.
-import { mapNetworkJson, type NormalizedUsageEvent } from '../../../../../packages/shared/ingest/src';
+// `NormalizedUsageEvent[]` understood by hashing and ingestion logic.
+import { mapNetworkJson, type NormalizedUsageEvent } from '../../../../../../packages/shared/ingest/src';
 
-export type { NormalizedUsageEvent } from '../../../../../packages/shared/ingest/src';
+export type { NormalizedUsageEvent } from '../../../../../../packages/shared/ingest/src';
 
 export type NormalizablePayload = unknown;
 

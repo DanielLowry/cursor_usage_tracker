@@ -48,6 +48,52 @@ For specific commands and step-by-step instructions, please refer to the OS-spec
 └─ tsconfig.json
 ```
 
+## Event-store-first ingestion
+
+```
+Cursor CSV/JSON
+      │
+      ▼
+ core/parse ➜ core/normalize ➜ lib/row-hash
+      │
+      ▼
+ infra/event store (upsert usage_event + ingestion row)
+      │
+      └───▶ infra/blob store (weekly/anomaly policy)
+```
+
+The scraper fetches Cursor usage exports, normalizes them into deterministic
+`NormalizedUsageEvent` rows, computes a stable `row_hash`, and performs
+insert-ignore upserts on `usage_event`. Each run records a single `ingestion`
+row keyed by `content_hash`, making retries idempotent and allowing provenance
+queries without storing full snapshots.
+
+### Blob policy
+
+Raw exports are persisted only on the first run of an ISO week or when
+anomalies occur (parse/validation errors). Set `BLOB_POLICY=weekly` to enable
+the default weekly cadence; increase `BLOB_POLICY_THRESHOLD` (number of
+ingestions between saves) to force more frequent blobs if desired. In all
+cases, `ingestion` metadata records the `content_hash`, byte size, headers, and
+row hashes whether or not a blob is stored.
+
+### Runbook
+
+1. **Re-ingest a capture** — run `pnpm workers:scraper` (or
+   `pnpm scrape:once`) after ensuring `CURSOR_AUTH_STATE_DIR` points at a valid
+   `cursor.state.json`. The orchestrator logs `scrape.start`, `events.upserted`,
+   and `scrape.done` with inserted/duplicate counts.
+2. **Inspect the latest ingestion** — launch Prisma Studio via
+   `pnpm --filter ./packages/db exec prisma studio` and open the `Ingestion`
+   table, or run a SQL query such as
+   `SELECT id, content_hash, inserted_count FROM ingestion ORDER BY ingested_at DESC LIMIT 5;`
+   using your preferred Postgres client (`psql`, Prisma Studio, or any GUI) to
+   view recent metadata including `content_hash` and row hashes.
+3. **Expected NOOPs** — a second run against the same payload should report
+   `insertedCount: 0` and only update `last_seen_at`. Verify by rerunning the
+   scraper and confirming logs show `events.duplicate_count` equal to the row
+   count and no new `usage_event` rows in the database.
+
 ## Development workflow
 
 These commands are run from the repository root unless noted otherwise.

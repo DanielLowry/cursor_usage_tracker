@@ -2,7 +2,10 @@
 
 {
   "extends": "@cursor-usage/config/base.tsconfig.json",
-  "compilerOptions": {},
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true
+  },
   "include": ["src", "tsup.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

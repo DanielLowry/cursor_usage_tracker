@@ -44,13 +44,7 @@ export function stableHash(value: unknown): string {
   return createHash('sha256').update(json).digest('hex');
 }
 
-/**
- * Decide whether to write a new snapshot given previous and next table hashes.
- */
-export function shouldWriteSnapshot(prevHash: string | null | undefined, nextHash: string | null | undefined): boolean {
-  if (!prevHash && nextHash) return true;
-  if (!nextHash) return false;
-  return prevHash !== nextHash;
+export function sha256(data: Buffer | string): string {
+  const buffer = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+  return createHash('sha256').update(buffer).digest('hex');
 }
-
-
