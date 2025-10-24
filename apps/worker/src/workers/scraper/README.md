@@ -1,49 +1,28 @@
-# Scraper core invariants
+# Scraper module layout
 
-The scraper now follows a functional core / imperative shell split.  All stateless
-logic lives in the `scraper/` directory so that orchestrator code in
-`scraper.ts` only coordinates I/O.
+The scraper uses a functional core with thin infrastructure adapters. Pure
+transformations live under `core/`, shared utilities in `lib/`, and database or
+IO-bound adapters in `infra/`. The top-level orchestrator wires these pieces
+without importing platform dependencies directly.
 
-## Modules
+## Directories
 
-- `csv.ts` — parses Cursor usage CSV exports into a deterministic shape.
-- `normalize.ts` — adapts parsed payloads (CSV or already-normalized JSON) into
-  `NormalizedUsageEvent` records via `mapNetworkJson`.
-- `tableHash.ts` — builds the stable snapshot view and hash input.
-- `delta.ts` — filters normalized events down to the delta window.
+- `core/` — CSV parsing and payload normalization built on `mapNetworkJson`.
+  Modules here are deterministic, side-effect free, and expose only named
+  exports.
+- `lib/` — shared helpers such as the CSV parser configuration, content hashing,
+  and the canonical row-hash function re-export.
+- `infra/` — Cursor- and Prisma-backed adapters for fetch, event-store access,
+  and blob persistence. External dependencies (HTTP, crypto, zlib, Prisma) are
+  isolated here.
 
 ## Invariants
 
-### Ordering
-
-All normalized events are sorted by **model** (lexicographic) and then by
-**total_tokens** (ascending) before hashing.  This guarantees stable ordering
-for identical datasets, regardless of the incoming CSV order.
-
-### Hash projection
-
-The table hash is computed from an object containing:
-
-- `billing_period.start` / `billing_period.end` (ISO yyyy-mm-dd or `null`)
-- Rows projected to `{ model, kind, max_mode, input_with_cache_write_tokens,
-  input_without_cache_write_tokens, cache_read_tokens, output_tokens,
-  total_tokens, api_cost_cents, api_cost_raw, cost_to_you_cents }`
-
-No other fields influence the snapshot identity.
-
-### Equality & dedupe
-
-Row-level equality is defined downstream by `usage_events.row_hash`, which is
-based on the normalized payload emitted by `mapNetworkJson`.  Because the core
-modules never mutate events after normalization, the DB layer can safely reuse
-row hashes to dedupe identical ingestions.
-
-### Time semantics
-
-- `captured_at` is injected by the orchestrator and passed into
-  `normalizeCapturedPayload`, keeping tests deterministic.
-- Billing period bounds (`billing_period.start`/`end`) originate from the CSV
-  rows and are truncated to UTC midnights.
-- Delta calculation only drops events whose `captured_at` is **strictly greater**
-  than the latest persisted timestamp for the billing period; retries with the
-  same capture timestamp are idempotent.
+- `NormalizedUsageEvent` is the single shape passed across boundaries.
+- Row equality and dedupe rely exclusively on `row_hash` computed from the
+  normalized payload; core modules never mutate records after hashing.
+- Metadata keys follow the snake_case naming used in the database
+  (`captured_at`, `billing_period_start`, `billing_period_end`, `row_hash`).
+- `core/` stays side-effect free and does not read from the environment, file
+  system, or network. All IO flows through the ports defined in `ports.ts` and
+  their implementations under `infra/`.

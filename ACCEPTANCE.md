@@ -8,7 +8,7 @@ The project is considered complete when all the following pass.
 - [x] Authentication verified by HTTP request to `usage-summary` using stored cookies; key fields present.
 - [x] Hourly scraping downloads **CSV export** via authenticated HTTP and persists raw blob.
 - [x] CSV → normalized rows mapping implemented and produces **normalized output**.
-- [x] **Change detection** works: no duplicate snapshots for identical data (hash unchanged).
+- [x] **Change detection** works: re-ingests do not create duplicate `usage_event` rows (row hash unchanged).
 - [ ] CSV ingestion failures **log an error**, enqueue an **alert**, and a notifier email is sent.
 
 ## Scheduling & Workers
@@ -20,7 +20,7 @@ The project is considered complete when all the following pass.
 - [x] Prisma schema includes all tables in §3 of SPEC.md (including enums and UUID PKs).
 - [x] All numeric values are normalized (commas stripped, currency → **cents**, missing → `0`).
 - [x] Historical data is retained indefinitely.
-- [x] `snapshots.table_hash` changes **only** when data changes (verified by fixtures).
+- [x] `usage_event.row_hash` stays stable for identical logical rows (verified by fixtures).
 - [x] Appropriate indexes exist (see §3.2).
 
 ## Projections

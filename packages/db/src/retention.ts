@@ -31,8 +31,10 @@ export async function trimRawBlobs(maxN = 20): Promise<number> {
     return 0;
   }
 
+  const victimIds = victims.map(({ id }: { id: string }) => id);
+
   const deleted = await prisma.rawBlob.deleteMany({
-    where: { id: { in: victims.map((v) => v.id) } },
+    where: { id: { in: victimIds } },
   });
 
   return deleted.count;

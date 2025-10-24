@@ -1,4 +1,4 @@
-// Relative path: apps/worker/src/workers/scraper/adapters/blobStore.ts
+// Relative path: apps/worker/src/workers/scraper/infra/blobStore.ts
 // Adapter persisting raw blobs (CSV/JSON) to the database with dedup and retention.
 import { createHash } from 'crypto';
 import { promisify } from 'util';
@@ -67,8 +67,8 @@ export class PrismaBlobStore implements BlobStorePort {
       });
       this.options.logger.info('scraper.blob.saved', { blobId: blob.id, contentHash });
       return { outcome: 'saved', blobId: blob.id, contentHash };
-    } catch (err: any) {
-      if (err?.code === 'P2002') {
+    } catch (err) {
+      if (isUniqueConstraintViolation(err)) {
         const existing = await prisma.rawBlob.findFirst({
           where: { content_hash: contentHash },
           select: { id: true },
@@ -92,4 +92,8 @@ export class PrismaBlobStore implements BlobStorePort {
       throw new ScraperError('IO_ERROR', 'failed trimming raw blob retention', { cause: err });
     }
   }
+}
+
+function isUniqueConstraintViolation(err: unknown): err is { code: string } {
+  return typeof err === 'object' && err !== null && 'code' in err && (err as { code?: unknown }).code === 'P2002';
 }

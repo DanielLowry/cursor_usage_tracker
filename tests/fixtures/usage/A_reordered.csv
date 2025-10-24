@@ -1,0 +1,4 @@
+Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost,Cost to you
+2025-02-03,gpt-4.1-mini,3,1,2,4,10,$0.02,$0.02
+2025-02-01,gpt-4o,10,5,0,15,30,$0.10,$0.10
+2025-02-02,gpt-4o-mini,0,0,0,5,5,$0.05,$0.05

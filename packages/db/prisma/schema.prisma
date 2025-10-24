@@ -35,47 +35,30 @@ enum AlertKind {
 }
 
 model UsageEvent {
-  id          String   @id @default(uuid()) @db.Uuid
-  captured_at DateTime @db.Timestamptz()
-  kind        String
-  model       String
-  max_mode    String?
-  input_with_cache_write_tokens    Int
-  input_without_cache_write_tokens Int
-  cache_read_tokens                Int
-  output_tokens                    Int
-  total_tokens                     Int
-  api_cost_cents                   Int
-  api_cost_raw                     String?
+  row_hash                           String   @id @db.Text
+  captured_at                        DateTime @db.Timestamptz()
+  kind                               String?
+  model                              String
+  max_mode                           String?
+  input_with_cache_write_tokens      Int
+  input_without_cache_write_tokens   Int
+  cache_read_tokens                  Int
+  output_tokens                      Int
+  total_tokens                       Int
+  api_cost_cents                     Int
+  api_cost_raw                       String?  @db.Text
+  cost_to_you_cents                  Int
+  cost_to_you_raw                    String?  @db.Text
+  billing_period_start               DateTime? @db.Date
+  billing_period_end                 DateTime? @db.Date
+  source                             String
+  first_seen_at                      DateTime @db.Timestamptz()
+  last_seen_at                       DateTime @db.Timestamptz()
+  logic_version                      Int?
+  event_ingestions                   EventIngestion[]
 
-  @@map("usage_events")
-  @@index([captured_at])
-  @@unique([captured_at]) // your uniqueness guarantee
-}
-
-model Snapshot {
-  id            String   @id @default(uuid()) @db.Uuid
-  captured_at   DateTime @db.Timestamptz()
-
-  // Derived by scraper at runtime (optional, keep if useful)
-  billing_period_start DateTime? @db.Date
-  billing_period_end   DateTime? @db.Date
-
-  // Provenance to the raw file
-  raw_blob     RawBlob  @relation(fields: [raw_blob_id], references: [id])
-  raw_blob_id  String   @db.Uuid
-
-  // What the file logically contained
-  table_hash   String
-  rows_count   Int
-
-  // Helpful bounds (from the file’s parsed rows)
-  min_row_ts   DateTime? @db.Timestamptz()
-  max_row_ts   DateTime? @db.Timestamptz()
-
-  @@map("snapshots")
-  @@index([captured_at])
-  @@unique([billing_period_start, billing_period_end, table_hash])
+  @@map("usage_event")
+  @@index([billing_period_start, billing_period_end])
 }
 
 model RawBlob {
@@ -89,13 +72,41 @@ model RawBlob {
   schema_version String? @db.Text
   metadata      Json?
 
-  // snapshots that reference this raw blob (provenance)
-  snapshots     Snapshot[]
+  ingestions    Ingestion[]
 
   // no direct relation to UsageEvent anymore
 
   @@unique([content_hash])
   @@map("raw_blobs")
+}
+
+model Ingestion {
+  id            String   @id @default(uuid()) @db.Uuid
+  source        String
+  ingested_at   DateTime @db.Timestamptz()
+  content_hash  String?  @db.Text
+  headers       Json?
+  metadata      Json?
+  status        String
+  raw_blob_id   String?  @db.Uuid
+  raw_blob      RawBlob? @relation(fields: [raw_blob_id], references: [id])
+  events        EventIngestion[]
+
+  @@map("ingestion")
+  @@unique([content_hash])
+  @@index([ingested_at])
+}
+
+model EventIngestion {
+  row_hash     String
+  ingestion_id String  @db.Uuid
+
+  usage_event UsageEvent @relation(fields: [row_hash], references: [row_hash])
+  ingestion   Ingestion  @relation(fields: [ingestion_id], references: [id])
+
+  @@id([row_hash, ingestion_id])
+  @@map("event_ingestion")
+  @@index([ingestion_id])
 }
 
 model Budget {
