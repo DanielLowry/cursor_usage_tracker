@@ -4,8 +4,12 @@
  * Test Purpose:
  * - Validates that the scraper orchestrator normalizes CSV rows, computes row hashes,
  *   and delegates persistence to the usage event store in an idempotent way.
+ * - Validates that the scraper orchestrator normalizes CSV rows, computes row hashes,
+ *   and delegates persistence to the usage event store in an idempotent way.
  *
  * Assumptions:
+ * - The in-memory fake usage event store mimics `row_hash` uniqueness semantics.
+ * - The CSV fixture matches the minimal header set expected by the parser.
  * - The in-memory fake usage event store mimics `row_hash` uniqueness semantics.
  * - The CSV fixture matches the minimal header set expected by the parser.
  *
