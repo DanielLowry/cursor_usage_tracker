@@ -143,3 +143,22 @@ export const startScraperWorker = (): Worker => {
   );
   return worker;
 };
+
+// Execute a single ingestion run when invoked directly (e.g., via pnpm scrape:once)
+(() => {
+  const invokedPath = process.argv && process.argv.length > 1 ? process.argv[1] : '';
+  const isDirect = typeof invokedPath === 'string' && path.basename(invokedPath) === 'scrape.ts';
+  if (!isDirect) return;
+
+  executeIngestionJob()
+    .then((result) => {
+      console.info('scrape.once.completed', {
+        savedBlob: result.savedBlob,
+      });
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error('scrape.once.error', err);
+      process.exit(1);
+    });
+})();
