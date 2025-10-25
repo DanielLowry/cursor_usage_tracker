@@ -26,65 +26,71 @@ export class PrismaBlobStore implements BlobStorePort {
    */
   async saveIfNew(input: {
     bytes: Buffer;
-    kind: 'html' | 'network_json';
-    url?: string;
-    capturedAt: Date;
-    metadata?: Record<string, unknown>;
-  }): Promise<{ outcome: 'saved' | 'duplicate'; blobId: string; contentHash: string }> {
-    const { bytes, kind, url, capturedAt, metadata } = input;
-    const contentHash = createHash('sha256').update(bytes).digest('hex');
+    meta: {
+      source: string;
+      contentHash: string;
+      ingestionId: string | null;
+      headers: Record<string, unknown>;
+      capturedAt: Date;
+    };
+  }): Promise<{ kind: 'saved' | 'duplicate'; contentHash: string; blobId?: string }> {
+    const { bytes, meta } = input;
+    const { capturedAt, contentHash, ingestionId, headers, source } = meta;
+    const effectiveHash = createHash('sha256').update(bytes).digest('hex');
+    if (effectiveHash !== contentHash) {
+      this.options.logger.info('blob.hash_mismatch', {
+        providedHash: contentHash,
+        computedHash: effectiveHash,
+      });
+    }
 
     try {
       const existing = await prisma.rawBlob.findFirst({
-        where: { content_hash: contentHash },
+        where: { content_hash: effectiveHash },
         select: { id: true },
       });
       if (existing) {
-        this.options.logger.info('scraper.blob.duplicate', { blobId: existing.id, contentHash });
-        return { outcome: 'duplicate', blobId: existing.id as string, contentHash };
+        this.options.logger.info('blob.skipped', { reason: 'duplicate', contentHash: effectiveHash });
+        if (ingestionId) {
+          await prisma.ingestion.updateMany({
+            where: { id: ingestionId, raw_blob_id: null },
+            data: { raw_blob_id: existing.id },
+          });
+        }
+        return { kind: 'duplicate', contentHash: effectiveHash, blobId: existing.id };
       }
 
       const gzipped = await gzipAsync(bytes);
       const blob = await prisma.rawBlob.create({
         data: {
           captured_at: capturedAt,
-          kind,
-          url,
+          kind: 'html',
+          url: source,
           payload: gzipped,
-          content_hash: contentHash,
-          content_type: kind === 'html' ? 'text/csv' : 'application/json',
+          content_hash: effectiveHash,
+          content_type: 'text/csv',
           schema_version: 'v1',
           metadata: {
-            provenance: {
-              method: kind === 'html' ? 'http_csv' : 'fixture',
-              url: url ?? null,
-              fetched_at: capturedAt.toISOString(),
-              size_bytes: bytes.length,
-            },
-            ...(metadata ?? {}),
+            headers,
+            source,
+            captured_at: capturedAt.toISOString(),
+            ingestion_id: ingestionId,
           },
         },
         select: { id: true },
       });
-      this.options.logger.info('scraper.blob.saved', { blobId: blob.id, contentHash });
-      return { outcome: 'saved', blobId: blob.id, contentHash };
-    } catch (err) {
-      if (isUniqueConstraintViolation(err)) {
-        const existing = await prisma.rawBlob.findFirst({
-          where: { content_hash: contentHash },
-          select: { id: true },
+
+      if (ingestionId) {
+        await prisma.ingestion.updateMany({
+          where: { id: ingestionId },
+          data: { raw_blob_id: blob.id },
         });
-        if (existing) {
-          this.options.logger.warn('scraper.blob.duplicate_race', { blobId: existing.id, contentHash });
-          return { outcome: 'duplicate', blobId: existing.id as string, contentHash };
-        }
-        throw new ScraperError('DB_CONFLICT', 'raw_blob unique constraint violated without existing record', { cause: err });
       }
+
+      this.options.logger.info('blob.saved', { blobId: blob.id, contentHash: effectiveHash });
+      return { kind: 'saved', contentHash: effectiveHash, blobId: blob.id };
+    } catch (err) {
       throw new ScraperError('IO_ERROR', 'failed to persist raw blob', { cause: err });
     }
   }
-}
-
-function isUniqueConstraintViolation(err: unknown): err is { code: string } {
-  return typeof err === 'object' && err !== null && 'code' in err && (err as { code?: unknown }).code === 'P2002';
 }

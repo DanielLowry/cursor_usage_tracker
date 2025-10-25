@@ -8,7 +8,7 @@ import {
   verifyAuthState,
 } from '../../../../../../packages/shared/cursor-auth/src';
 import { ScraperError, isScraperError } from '../errors';
-import type { FetchPort, Logger } from '../ports';
+import type { FetchPort, FetchResult, Logger } from '../ports';
 
 /** Default Cursor usage CSV endpoint used by the adapter. */
 export const DEFAULT_USAGE_EXPORT_URL =
@@ -39,7 +39,7 @@ export class CursorCsvFetchAdapter implements FetchPort {
     try {
       await getAuthHeaders(stateDir);
     } catch (err) {
-      logger.warn('scraper.fetch.auth_headers_failed', {
+      logger.info('scraper.fetch.auth_headers_failed', {
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -49,7 +49,7 @@ export class CursorCsvFetchAdapter implements FetchPort {
       const preview = await session.preview();
       logger.info('scraper.fetch.auth_preview', { hash: preview.hash });
     } catch (err) {
-      logger.warn('scraper.fetch.auth_preview_failed', {
+      logger.info('scraper.fetch.auth_preview_failed', {
         error: err instanceof Error ? err.message : String(err),
       });
     }
@@ -83,7 +83,7 @@ export class CursorCsvFetchAdapter implements FetchPort {
   }
 
   /** Fetches the usage CSV as a Buffer or throws a `ScraperError` on failure. */
-  async fetchCsvExport(): Promise<Buffer> {
+  async fetch(): Promise<FetchResult> {
     const session = await this.getSession();
     try {
       const headers = await session.toHttpHeaders(this.targetUrl);
@@ -94,7 +94,18 @@ export class CursorCsvFetchAdapter implements FetchPort {
         });
       }
       const arrayBuf = await response.arrayBuffer();
-      return Buffer.from(arrayBuf);
+      const recordHeaders: Record<string, unknown> = {};
+      response.headers.forEach((value, key) => {
+        recordHeaders[key.toLowerCase()] = value;
+      });
+      if (!recordHeaders['content-type']) {
+        recordHeaders['content-type'] = 'text/csv';
+      }
+      return {
+        bytes: Buffer.from(arrayBuf),
+        headers: recordHeaders,
+        sourceUrl: this.targetUrl,
+      } satisfies FetchResult;
     } catch (err) {
       if (isScraperError(err)) throw err;
       throw new ScraperError('FETCH_ERROR', 'failed fetching cursor usage export', { cause: err });

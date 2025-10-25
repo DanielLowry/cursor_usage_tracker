@@ -1,12 +1,15 @@
 // Relative path: apps/worker/src/workers/scraper/infra/eventStore.ts
 // Adapter responsible for persisting normalized usage events plus ingestion metadata.
-import { ingestNormalizedUsageEvents } from '../../../../../../packages/db/src/eventStore';
+import {
+  ingestNormalizedUsageEvents,
+  recordFailedIngestion,
+} from '../../../../../../packages/db/src/eventStore';
 import type { Logger, UsageEventStorePort, UsageEventWithRowHash } from '../ports';
 import { ScraperError, isScraperError } from '../errors';
 
 export type PrismaUsageEventStoreOptions = {
   logger: Logger;
-  defaultLogicVersion?: number;
+  defaultSource?: string;
 };
 
 /**
@@ -23,27 +26,20 @@ export class PrismaUsageEventStore implements UsageEventStorePort {
       source: string;
       contentHash: string;
       headers: Record<string, unknown>;
-      metadata: Record<string, unknown>;
-      logicVersion: number;
-      rawBlobId: string | null;
-      size: number;
     },
-  ): Promise<{ ingestionId: string | null; insertedCount: number; duplicateCount: number }> {
-    const logicVersion = meta.logicVersion ?? this.options.defaultLogicVersion ?? 1;
-
+  ): Promise<{ ingestionId: string; insertedCount: number; duplicateCount: number }> {
     try {
+      const normalized = events.map(({ rowHash: _rowHash, ...event }) => event);
       const result = await ingestNormalizedUsageEvents({
-        normalizedEvents: events.map(({ rowHash: _rowHash, ...event }) => event),
+        normalizedEvents: normalized,
         ingestedAt: meta.ingestedAt,
-        rawBlobId: meta.rawBlobId ?? null,
         contentHash: meta.contentHash,
         headers: meta.headers,
         metadata: {
-          ...meta.metadata,
-          bytes: meta.size,
+          row_count: events.length,
         },
-        logicVersion,
-        source: meta.source,
+        logicVersion: 1,
+        source: meta.source ?? this.options.defaultSource ?? 'cursor_csv',
       });
 
       const duplicateCount = result.updatedCount;
@@ -62,6 +58,36 @@ export class PrismaUsageEventStore implements UsageEventStorePort {
     } catch (err) {
       if (isScraperError(err)) throw err;
       throw new ScraperError('IO_ERROR', 'failed to persist usage events', { cause: err });
+    }
+  }
+
+  async recordFailure(meta: {
+    ingestedAt: Date;
+    source: string;
+    contentHash: string;
+    headers: Record<string, unknown>;
+    error: { code: string; message: string };
+  }): Promise<{ ingestionId: string | null }> {
+    try {
+      const result = await recordFailedIngestion({
+        ingestedAt: meta.ingestedAt,
+        source: meta.source ?? this.options.defaultSource ?? 'cursor_csv',
+        contentHash: meta.contentHash,
+        headers: meta.headers,
+        metadata: {
+          error: meta.error,
+        },
+        error: meta.error,
+      });
+
+      this.options.logger.info('ingestion.recorded', {
+        ingestionId: result.ingestionId,
+        status: 'failed',
+      });
+
+      return result;
+    } catch (err) {
+      throw new ScraperError('IO_ERROR', 'failed to record ingestion failure', { cause: err });
     }
   }
 }
