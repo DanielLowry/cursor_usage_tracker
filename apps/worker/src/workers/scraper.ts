@@ -7,7 +7,6 @@
 import { Queue } from 'bullmq';
 import * as fs from 'fs';
 import * as path from 'path';
-import { createHash } from 'crypto';
 import { z } from 'zod';
 import { getRedis } from '@cursor-usage/redis';
 import { computeUsageEventRowHash } from './scraper/lib/rowHash';
@@ -16,9 +15,17 @@ import { parseUsageCsv } from './scraper/core/csv';
 import { normalizeCapturedPayload } from './scraper/core/normalize';
 import type { NormalizedUsageEvent } from './scraper/core/normalize';
 import { ScraperError, isScraperError } from './scraper/errors';
-import type { ClockPort, FetchPort, Logger, NormalizedUsageEventWithHash, UsageEventStorePort } from './scraper/ports';
+import type {
+  BlobStorePort,
+  ClockPort,
+  FetchPort,
+  Logger,
+  NormalizedUsageEventWithHash,
+  UsageEventStorePort,
+} from './scraper/ports';
 import { CursorCsvFetchAdapter, DEFAULT_USAGE_EXPORT_URL } from './scraper/infra/fetch';
 import { PrismaUsageEventStore } from './scraper/infra/eventStore';
+import { PrismaBlobStore } from './scraper/infra/blobStore';
 
 // Exported BullMQ queue used by the worker process elsewhere to enqueue scraping jobs.
 const connection = getRedis();
@@ -69,12 +76,15 @@ class ConsoleLogger implements Logger {
 export type ScraperOrchestratorDependencies = {
   fetchPort: FetchPort;
   eventStore: UsageEventStorePort;
+  blobStore: BlobStorePort;
   clock: ClockPort;
   logger: Logger;
   csvSourceUrl: string;
   ingestionSource?: string;
   logicVersion?: number;
 };
+
+type BlobPolicyDecision = { shouldStore: boolean; reason: string };
 
 /**
  * ScraperOrchestrator coordinates the end-to-end scrape:
@@ -90,9 +100,10 @@ export class ScraperOrchestrator {
    * Throws `ScraperError` on known failure categories.
    */
   async run(): Promise<ScrapeResult> {
-    const { fetchPort, eventStore, clock, logger, csvSourceUrl, ingestionSource, logicVersion } = this.deps;
+    const { fetchPort, eventStore, blobStore, clock, logger, csvSourceUrl, ingestionSource, logicVersion } = this.deps;
 
     logger.info('scrape.start', { csvSourceUrl });
+    const startedAtMs = Date.now();
 
     let csvBuffer: Buffer;
     try {
@@ -138,11 +149,40 @@ export class ScraperOrchestrator {
       throw new ScraperError('CSV_PARSE_ERROR', 'failed to parse usage csv');
     }
 
-    logger.debug('events.parsed', { rowCount: parsedCsv.rows.length });
+    const rowCount = parsedCsv.rows.length;
+    logger.debug('events.parsed', { rowCount });
+
+    const blobDecision = this.evaluateBlobPolicy({ ingestedAt, rowCount });
+
+    let rawBlobId: string | null = null;
+    if (blobDecision.shouldStore) {
+      try {
+        const blobResult = await blobStore.saveIfNew({
+          payload: csvBuffer,
+          kind: 'html',
+          url: csvSourceUrl,
+          capturedAt: ingestedAt,
+        });
+        rawBlobId = blobResult.blobId;
+        logger.info('blob.saved', {
+          blobId: blobResult.blobId,
+          contentHash: blobResult.contentHash,
+          outcome: blobResult.outcome,
+          reason: blobDecision.reason,
+        });
+      } catch (error) {
+        logger.error('blob.save_failed', {
+          reason: blobDecision.reason,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } else {
+      logger.info('blob.skipped', { reason: blobDecision.reason, contentHash });
+    }
 
     let normalizedEvents: NormalizedUsageEvent[];
     try {
-      normalizedEvents = normalizeCapturedPayload(parsedCsv, ingestedAt, null).map((event) => ({
+      normalizedEvents = normalizeCapturedPayload(parsedCsv, ingestedAt, rawBlobId).map((event) => ({
         ...event,
         source: ingestionSource ?? 'cursor_csv',
       }));
@@ -153,8 +193,9 @@ export class ScraperOrchestrator {
         ingestedAt,
         contentHash,
         headers,
-        metadata: metadataBase,
+        metadata: { ...metadataBase, row_count: rowCount, blob_policy_reason: blobDecision.reason },
         logicVersion: version,
+        rawBlobId,
         size: bytes,
         error: {
           code: 'NORMALIZE_ERROR',
@@ -174,6 +215,7 @@ export class ScraperOrchestrator {
       row_count: eventsWithHash.length,
       billing_period_start: parsedCsv.billing_period?.start ?? null,
       billing_period_end: parsedCsv.billing_period?.end ?? null,
+      blob_policy_reason: blobDecision.reason,
     } satisfies Record<string, unknown>;
 
     const ingestResult = await eventStore.ingest({
@@ -184,6 +226,7 @@ export class ScraperOrchestrator {
       headers,
       metadata,
       logicVersion: version,
+      rawBlobId,
       source: ingestionSource ?? 'cursor_csv',
     });
 
@@ -194,15 +237,22 @@ export class ScraperOrchestrator {
       duplicateCount: ingestResult.duplicateCount,
     });
 
-    logger.info('blob.skipped', { reason: 'policy:not_implemented', contentHash });
+    logger.info('metrics.ingestions_total', { count: 1 });
+    logger.info('metrics.events_inserted_total', { count: ingestResult.insertedCount });
+    logger.info('metrics.events_duplicates_total', { count: ingestResult.duplicateCount });
+    logger.info('metrics.blobs_saved_total', { count: rawBlobId ? 1 : 0 });
+    logger.info('metrics.blobs_skipped_total', { count: rawBlobId ? 0 : 1 });
 
+    const durationMs = Date.now() - startedAtMs;
     logger.info('scrape.done', {
       ingestionId: ingestResult.ingestionId,
       insertedCount: ingestResult.insertedCount,
       duplicateCount: ingestResult.duplicateCount,
       rowCount: eventsWithHash.length,
       contentHash,
+      durationMs,
     });
+    logger.info('metrics.duration_ms', { value: durationMs });
 
     return {
       ingestionId: ingestResult.ingestionId,
@@ -212,6 +262,20 @@ export class ScraperOrchestrator {
       contentHash,
       bytes,
     };
+  }
+
+  private evaluateBlobPolicy(input: { ingestedAt: Date; rowCount: number }): BlobPolicyDecision {
+    const { ingestedAt, rowCount } = input;
+    if (rowCount === 0) {
+      return { shouldStore: true, reason: 'policy:anomaly:no_rows' };
+    }
+
+    const isMonday = ingestedAt.getUTCDay() === 1;
+    if (isMonday) {
+      return { shouldStore: true, reason: 'policy:weekly:monday' };
+    }
+
+    return { shouldStore: false, reason: 'policy:default_skip' };
   }
 }
 
@@ -258,6 +322,8 @@ function resolveStateDir(requestedStateDir: string) {
 
 /**
  * CLI-friendly wrapper that wires concrete adapters and runs a single scrape.
+ * TODO(snapshot-bookmarks): re-introduce snapshot bookmark persistence if needed
+ * once the event-store-first flow has settled.
  */
 export async function runScrape(): Promise<ScrapeResult> {
   const env = parseEnv();
@@ -271,11 +337,13 @@ export async function runScrape(): Promise<ScrapeResult> {
 
   const fetchPort = new CursorCsvFetchAdapter({ stateDir: chosenStateDir, logger });
   const eventStore = new PrismaUsageEventStore({ logger });
+  const blobStore = new PrismaBlobStore({ logger });
   const clock = new SystemClock();
 
   const orchestrator = new ScraperOrchestrator({
     fetchPort,
     eventStore,
+    blobStore,
     clock,
     logger,
     csvSourceUrl: DEFAULT_USAGE_EXPORT_URL,

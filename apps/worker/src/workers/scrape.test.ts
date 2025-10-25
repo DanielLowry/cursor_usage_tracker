@@ -16,6 +16,8 @@
 import { describe, it, expect } from 'vitest';
 import { ScraperOrchestrator, type ScrapeResult } from './scraper';
 import type {
+  BlobSaveResult,
+  BlobStorePort,
   ClockPort,
   FetchPort,
   Logger,
@@ -100,6 +102,24 @@ class FakeUsageEventStore implements UsageEventStorePort {
   }
 }
 
+class FakeBlobStore implements BlobStorePort {
+  public saves: Array<{ payload: Buffer; kind: string; url?: string; capturedAt: Date }> = [];
+  public retentionCalls: number[] = [];
+
+  async saveIfNew(input: { payload: Buffer; kind: 'html' | 'network_json'; url?: string; capturedAt: Date }): Promise<BlobSaveResult> {
+    this.saves.push({ ...input });
+    return {
+      outcome: 'duplicate',
+      blobId: 'blob-1',
+      contentHash: computeSha256(input.payload),
+    };
+  }
+
+  async trimRetention(retain: number): Promise<void> {
+    this.retentionCalls.push(retain);
+  }
+}
+
 describe('ScraperOrchestrator (unit)', () => {
   const csvFixture = Buffer.from(
     [
@@ -111,12 +131,13 @@ describe('ScraperOrchestrator (unit)', () => {
   );
   const expectedHash = computeSha256(csvFixture);
 
-  function buildOrchestrator(store: FakeUsageEventStore, logger: TestLogger) {
+  function buildOrchestrator(store: FakeUsageEventStore, blobStore: FakeBlobStore, logger: TestLogger) {
     const fetchPort = new FakeFetchPort(csvFixture);
     const clock = new TestClock(new Date('2025-03-01T00:00:00Z'));
     return new ScraperOrchestrator({
       fetchPort,
       eventStore: store,
+      blobStore,
       clock,
       logger,
       csvSourceUrl: 'https://example.com/usage.csv',
@@ -131,8 +152,9 @@ describe('ScraperOrchestrator (unit)', () => {
 
   it('ingests normalized events and reports dedupe stats across runs', async () => {
     const store = new FakeUsageEventStore();
+    const blobStore = new FakeBlobStore();
     const logger = new TestLogger();
-    const orchestrator = buildOrchestrator(store, logger);
+    const orchestrator = buildOrchestrator(store, blobStore, logger);
 
     const first = await run(orchestrator);
     expect(first.contentHash).toBe(expectedHash);
@@ -155,5 +177,9 @@ describe('ScraperOrchestrator (unit)', () => {
 
     const eventUpsertLogs = logger.logs.filter((log) => log.message === 'events.upserted');
     expect(eventUpsertLogs.length).toBeGreaterThanOrEqual(2);
+
+    const blobSkipLogs = logger.logs.filter((log) => log.message === 'blob.skipped');
+    expect(blobSkipLogs.length).toBeGreaterThan(0);
+    expect(blobSkipLogs[0]?.context?.reason).toBe('policy:default_skip');
   });
 });
