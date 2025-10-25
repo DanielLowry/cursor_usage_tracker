@@ -6,12 +6,12 @@ import { z } from 'zod'; // Assuming zod is available in shared package
 export type RawCookie = {
   name: string;
   value: string;
-  domain?: string;
-  path?: string;
-  expires?: number;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: 'Strict' | 'Lax' | 'None';
+  domain?: string | undefined;
+  path?: string | undefined;
+  expires?: number | undefined;
+  httpOnly?: boolean | undefined;
+  secure?: boolean | undefined;
+  sameSite?: 'Strict' | 'Lax' | 'None' | undefined;
 };
 
 export type SessionData = any; // Represents the full browser state from extension upload

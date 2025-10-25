@@ -4,9 +4,8 @@ import { createHash } from 'crypto';
 import { promisify } from 'util';
 import * as zlib from 'zlib';
 import prisma from '../../../../../../packages/db/src/client';
-import { trimRawBlobs } from '../../../../../../packages/db/src/retention';
 import { ScraperError } from '../errors';
-import type { BlobSaveResult, BlobStorePort, Logger } from '../ports';
+import type { BlobStorePort, Logger } from '../ports';
 
 const gzipAsync = promisify(zlib.gzip);
 
@@ -26,13 +25,14 @@ export class PrismaBlobStore implements BlobStorePort {
    * or detected as a duplicate, along with ids and hash.
    */
   async saveIfNew(input: {
-    payload: Buffer;
+    bytes: Buffer;
     kind: 'html' | 'network_json';
     url?: string;
     capturedAt: Date;
-  }): Promise<BlobSaveResult> {
-    const { payload, kind, url, capturedAt } = input;
-    const contentHash = createHash('sha256').update(payload).digest('hex');
+    metadata?: Record<string, unknown>;
+  }): Promise<{ outcome: 'saved' | 'duplicate'; blobId: string; contentHash: string }> {
+    const { bytes, kind, url, capturedAt, metadata } = input;
+    const contentHash = createHash('sha256').update(bytes).digest('hex');
 
     try {
       const existing = await prisma.rawBlob.findFirst({
@@ -44,7 +44,7 @@ export class PrismaBlobStore implements BlobStorePort {
         return { outcome: 'duplicate', blobId: existing.id as string, contentHash };
       }
 
-      const gzipped = await gzipAsync(payload);
+      const gzipped = await gzipAsync(bytes);
       const blob = await prisma.rawBlob.create({
         data: {
           captured_at: capturedAt,
@@ -59,8 +59,9 @@ export class PrismaBlobStore implements BlobStorePort {
               method: kind === 'html' ? 'http_csv' : 'fixture',
               url: url ?? null,
               fetched_at: capturedAt.toISOString(),
-              size_bytes: payload.length,
+              size_bytes: bytes.length,
             },
+            ...(metadata ?? {}),
           },
         },
         select: { id: true },
@@ -80,16 +81,6 @@ export class PrismaBlobStore implements BlobStorePort {
         throw new ScraperError('DB_CONFLICT', 'raw_blob unique constraint violated without existing record', { cause: err });
       }
       throw new ScraperError('IO_ERROR', 'failed to persist raw blob', { cause: err });
-    }
-  }
-
-  /** Trims raw blob table to retain only the latest `retain` entries. */
-  async trimRetention(retain: number): Promise<void> {
-    try {
-      await trimRawBlobs(retain);
-      this.options.logger.debug('scraper.blob.trim_retention', { retain });
-    } catch (err) {
-      throw new ScraperError('IO_ERROR', 'failed trimming raw blob retention', { cause: err });
     }
   }
 }

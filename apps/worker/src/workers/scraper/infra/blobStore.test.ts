@@ -36,31 +36,35 @@ describeIfDb('PrismaBlobStore', () => {
     const payload = Buffer.from(JSON.stringify({ value: 1 }));
     const capturedAt = new Date('2025-02-05T00:00:00Z');
 
-    const first = await store.saveIfNew({ payload, kind: 'network_json', capturedAt });
-    const second = await store.saveIfNew({ payload, kind: 'network_json', capturedAt });
+    const first = await store.saveIfNew({ bytes: payload, kind: 'network_json', capturedAt });
+    const second = await store.saveIfNew({ bytes: payload, kind: 'network_json', capturedAt });
 
     expect(first.outcome).toBe('saved');
     expect(second.outcome).toBe('duplicate');
     expect(second.blobId).toBe(first.blobId);
   });
 
-  it('trims to retention count keeping newest blobs', async () => {
+  it('stores metadata alongside provenance details', async () => {
     const store = new PrismaBlobStore({ logger: noopLogger });
-    const base = Date.UTC(2025, 1, 5, 0, 0, 0);
+    const payload = Buffer.from('csv-data');
+    const capturedAt = new Date('2025-02-05T00:00:00Z');
 
-    for (let i = 0; i < 4; i++) {
-      const payload = Buffer.from(JSON.stringify({ index: i }));
-      const capturedAt = new Date(base + i * 1000);
-      const result = await store.saveIfNew({ payload, kind: 'network_json', capturedAt });
-      expect(result.outcome).toBe('saved');
-    }
+    const result = await store.saveIfNew({
+      bytes: payload,
+      kind: 'html',
+      capturedAt,
+      metadata: { reason: 'test' },
+    });
 
-    await store.trimRetention(2);
+    expect(result.outcome).toBe('saved');
 
-    const rows = await prisma.rawBlob.findMany({ orderBy: { captured_at: 'asc' } });
-    expect(rows.length).toBe(2);
-    const timestamps = rows.map((row) => row.captured_at.getTime());
-    expect(Math.min(...timestamps)).toBe(base + 2 * 1000);
-    expect(Math.max(...timestamps)).toBe(base + 3 * 1000);
+    const row = await prisma.rawBlob.findUniqueOrThrow({ where: { id: result.blobId } });
+    expect(row.metadata).toMatchObject({
+      provenance: {
+        fetched_at: capturedAt.toISOString(),
+        size_bytes: payload.length,
+      },
+      reason: 'test',
+    });
   });
 });

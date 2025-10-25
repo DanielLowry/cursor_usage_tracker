@@ -16,13 +16,12 @@
 import { describe, it, expect } from 'vitest';
 import { ScraperOrchestrator, type ScrapeResult } from './scraper';
 import type {
+  BlobStorePort,
   ClockPort,
   FetchPort,
   Logger,
-  UsageEventIngestInput,
-  UsageEventIngestResult,
-  UsageEventRecordFailureInput,
   UsageEventStorePort,
+  UsageEventWithRowHash,
 } from './scraper/ports';
 import { computeSha256 } from './scraper/lib/contentHash';
 
@@ -67,16 +66,39 @@ class FakeFetchPort implements FetchPort {
 }
 
 class FakeUsageEventStore implements UsageEventStorePort {
-  public ingestions: UsageEventIngestInput[] = [];
-  public failures: UsageEventRecordFailureInput[] = [];
+  public ingestions: Array<{
+    events: UsageEventWithRowHash[];
+    meta: {
+      ingestedAt: Date;
+      source: string;
+      contentHash: string;
+      headers: Record<string, unknown>;
+      metadata: Record<string, unknown>;
+      logicVersion: number;
+      rawBlobId: string | null;
+      size: number;
+    };
+  }> = [];
   private seen = new Set<string>();
   private seq = 0;
 
-  async ingest(input: UsageEventIngestInput): Promise<UsageEventIngestResult> {
-    this.ingestions.push(input);
+  async ingest(
+    events: UsageEventWithRowHash[],
+    meta: {
+      ingestedAt: Date;
+      source: string;
+      contentHash: string;
+      headers: Record<string, unknown>;
+      metadata: Record<string, unknown>;
+      logicVersion: number;
+      rawBlobId: string | null;
+      size: number;
+    },
+  ): Promise<{ ingestionId: string | null; insertedCount: number; duplicateCount: number }> {
+    this.ingestions.push({ events, meta });
     let insertedCount = 0;
     let duplicateCount = 0;
-    for (const event of input.events) {
+    for (const event of events) {
       if (this.seen.has(event.rowHash)) {
         duplicateCount += 1;
       } else {
@@ -89,14 +111,26 @@ class FakeUsageEventStore implements UsageEventStorePort {
       ingestionId: `ingestion-${this.seq}`,
       insertedCount,
       duplicateCount,
-      rowHashes: input.events.map((event) => event.rowHash),
     };
   }
+}
 
-  async recordFailure(input: UsageEventRecordFailureInput): Promise<{ ingestionId: string | null }> {
-    this.failures.push(input);
-    this.seq += 1;
-    return { ingestionId: `failure-${this.seq}` };
+class FakeBlobStore implements BlobStorePort {
+  public saves: Array<{ bytes: Buffer; kind: string; url?: string; capturedAt: Date; metadata?: Record<string, unknown> }> = [];
+
+  async saveIfNew(input: {
+    bytes: Buffer;
+    kind: 'html' | 'network_json';
+    url?: string;
+    capturedAt: Date;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ outcome: 'saved' | 'duplicate'; blobId: string; contentHash: string }> {
+    this.saves.push({ ...input });
+    return {
+      outcome: 'duplicate',
+      blobId: 'blob-1',
+      contentHash: computeSha256(input.bytes),
+    };
   }
 }
 
@@ -111,12 +145,13 @@ describe('ScraperOrchestrator (unit)', () => {
   );
   const expectedHash = computeSha256(csvFixture);
 
-  function buildOrchestrator(store: FakeUsageEventStore, logger: TestLogger) {
+  function buildOrchestrator(store: FakeUsageEventStore, blobStore: FakeBlobStore, logger: TestLogger) {
     const fetchPort = new FakeFetchPort(csvFixture);
     const clock = new TestClock(new Date('2025-03-01T00:00:00Z'));
     return new ScraperOrchestrator({
       fetchPort,
       eventStore: store,
+      blobStore,
       clock,
       logger,
       csvSourceUrl: 'https://example.com/usage.csv',
@@ -131,29 +166,32 @@ describe('ScraperOrchestrator (unit)', () => {
 
   it('ingests normalized events and reports dedupe stats across runs', async () => {
     const store = new FakeUsageEventStore();
+    const blobStore = new FakeBlobStore();
     const logger = new TestLogger();
-    const orchestrator = buildOrchestrator(store, logger);
+    const orchestrator = buildOrchestrator(store, blobStore, logger);
 
     const first = await run(orchestrator);
     expect(first.contentHash).toBe(expectedHash);
     expect(first.insertedCount).toBe(2);
     expect(first.duplicateCount).toBe(0);
-    expect(first.rowHashes.length).toBe(2);
 
     expect(store.ingestions).toHaveLength(1);
     const ingestInput = store.ingestions.at(0);
     expect(ingestInput).toBeDefined();
     if (!ingestInput) throw new Error('expected ingestion input');
     expect(ingestInput.events.length).toBe(2);
-    expect(ingestInput.metadata?.row_count).toBe(2);
-    expect(ingestInput.headers['content-type']).toBe('text/csv');
+    expect(ingestInput.meta.metadata.row_count).toBe(2);
+    expect(ingestInput.meta.headers['content-type']).toBe('text/csv');
 
     const second = await run(orchestrator);
     expect(second.insertedCount).toBe(0);
     expect(second.duplicateCount).toBe(2);
-    expect(second.rowHashes).toHaveLength(2);
 
     const eventUpsertLogs = logger.logs.filter((log) => log.message === 'events.upserted');
     expect(eventUpsertLogs.length).toBeGreaterThanOrEqual(2);
+
+    const blobSkipLogs = logger.logs.filter((log) => log.message === 'blob.skipped');
+    expect(blobSkipLogs.length).toBeGreaterThan(0);
+    expect(blobSkipLogs[0]?.context?.reason).toBe('policy:default_skip');
   });
 });
