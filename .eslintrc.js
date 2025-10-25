@@ -23,5 +23,32 @@ module.exports = {
         ],
       },
     },
+    {
+      files: ['apps/worker/src/workers/scraper.ts'],
+      rules: {
+        'import/no-restricted-paths': [
+          'error',
+          {
+            zones: [
+              {
+                target: ['./apps/worker/src/workers/scraper.ts'],
+                from: ['@prisma/client'],
+                message: 'scraper orchestrator must depend on ports, not Prisma directly',
+              },
+              {
+                target: ['./apps/worker/src/workers/scraper.ts'],
+                from: ['crypto'],
+                message: 'scraper orchestrator must depend on ports, not crypto primitives',
+              },
+              {
+                target: ['./apps/worker/src/workers/scraper.ts'],
+                from: ['zlib'],
+                message: 'scraper orchestrator must depend on ports, not compression primitives',
+              },
+            ],
+          },
+        ],
+      },
+    },
   ],
 };

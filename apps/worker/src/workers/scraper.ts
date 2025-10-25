@@ -15,14 +15,7 @@ import { parseUsageCsv } from './scraper/core/csv';
 import { normalizeCapturedPayload } from './scraper/core/normalize';
 import type { NormalizedUsageEvent } from './scraper/core/normalize';
 import { ScraperError, isScraperError } from './scraper/errors';
-import type {
-  BlobStorePort,
-  ClockPort,
-  FetchPort,
-  Logger,
-  NormalizedUsageEventWithHash,
-  UsageEventStorePort,
-} from './scraper/ports';
+import type { BlobStorePort, ClockPort, FetchPort, Logger, UsageEventStorePort, UsageEventWithRowHash } from './scraper/ports';
 import { CursorCsvFetchAdapter, DEFAULT_USAGE_EXPORT_URL } from './scraper/infra/fetch';
 import { PrismaUsageEventStore } from './scraper/infra/eventStore';
 import { PrismaBlobStore } from './scraper/infra/blobStore';
@@ -40,7 +33,6 @@ export type ScrapeResult = {
   ingestionId: string | null;
   insertedCount: number;
   duplicateCount: number;
-  rowHashes: string[];
   contentHash: string;
   bytes: number;
 };
@@ -136,16 +128,6 @@ export class ScraperOrchestrator {
     const parsedCsv = parseUsageCsv(csvText);
     if (!parsedCsv) {
       logger.error('events.parse_failed', { reason: 'csv_parse_error' });
-      await eventStore.recordFailure({
-        source: ingestionSource ?? 'cursor_csv',
-        ingestedAt,
-        contentHash,
-        headers,
-        metadata: metadataBase,
-        logicVersion: version,
-        size: bytes,
-        error: { code: 'CSV_PARSE_ERROR', message: 'failed to parse usage csv' },
-      });
       throw new ScraperError('CSV_PARSE_ERROR', 'failed to parse usage csv');
     }
 
@@ -158,10 +140,11 @@ export class ScraperOrchestrator {
     if (blobDecision.shouldStore) {
       try {
         const blobResult = await blobStore.saveIfNew({
-          payload: csvBuffer,
+          bytes: csvBuffer,
           kind: 'html',
           url: csvSourceUrl,
           capturedAt: ingestedAt,
+          metadata: metadataBase,
         });
         rawBlobId = blobResult.blobId;
         logger.info('blob.saved', {
@@ -188,24 +171,10 @@ export class ScraperOrchestrator {
       }));
     } catch (error) {
       logger.error('events.normalize_failed', { error });
-      await eventStore.recordFailure({
-        source: ingestionSource ?? 'cursor_csv',
-        ingestedAt,
-        contentHash,
-        headers,
-        metadata: { ...metadataBase, row_count: rowCount, blob_policy_reason: blobDecision.reason },
-        logicVersion: version,
-        rawBlobId,
-        size: bytes,
-        error: {
-          code: 'NORMALIZE_ERROR',
-          message: error instanceof Error ? error.message : 'failed to normalize usage payload',
-        },
-      });
       throw new ScraperError('NORMALIZE_ERROR', 'failed to normalize usage payload', { cause: error });
     }
 
-    const eventsWithHash: NormalizedUsageEventWithHash[] = normalizedEvents.map((event) => ({
+    const eventsWithHash: UsageEventWithRowHash[] = normalizedEvents.map((event) => ({
       ...event,
       rowHash: computeUsageEventRowHash(event, version),
     }));
@@ -218,8 +187,7 @@ export class ScraperOrchestrator {
       blob_policy_reason: blobDecision.reason,
     } satisfies Record<string, unknown>;
 
-    const ingestResult = await eventStore.ingest({
-      events: eventsWithHash,
+    const ingestResult = await eventStore.ingest(eventsWithHash, {
       ingestedAt,
       contentHash,
       size: bytes,
@@ -258,7 +226,6 @@ export class ScraperOrchestrator {
       ingestionId: ingestResult.ingestionId,
       insertedCount: ingestResult.insertedCount,
       duplicateCount: ingestResult.duplicateCount,
-      rowHashes: ingestResult.rowHashes,
       contentHash,
       bytes,
     };

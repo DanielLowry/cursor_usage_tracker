@@ -190,7 +190,7 @@ export async function ingestNormalizedUsageEvents(
       where: { row_hash: { in: rowHashes } },
       select: { row_hash: true },
     });
-    const existingSet = new Set(existingRows.map((row) => row.row_hash));
+    const existingSet = new Set(existingRows.map((row: { row_hash: string }) => row.row_hash));
 
     const newRows = rows.filter((row) => !existingSet.has(row.rowHash));
     const duplicateRows = rows.filter((row) => existingSet.has(row.rowHash));
