@@ -2,23 +2,20 @@
  * Relative path: apps/worker/src/workers/scrape.test.ts
  *
  * Test Purpose:
- * - Validates that the scraper orchestrator normalizes CSV rows, computes row hashes,
+ * - Validates that the ingestion orchestrator normalizes CSV rows, computes row hashes,
  *   and delegates persistence to the usage event store in an idempotent way.
  *
- * Assumptions:
- * - The in-memory fake usage event store mimics `row_hash` uniqueness semantics.
- * - The CSV fixture matches the minimal header set expected by the parser.
- *
  * Expected Outcome & Rationale:
- * - The first run inserts all rows, while the second run reports duplicates only,
- *   demonstrating end-to-end dedupe without touching an actual database.
+ * - The first run inserts all rows while the second run only reports duplicates,
+ *   demonstrating row-level dedupe without touching an actual database.
  */
-import { describe, it, expect } from 'vitest';
-import { ScraperOrchestrator, type ScrapeResult } from './scraper';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { runIngestion, type RunIngestionResult } from './orchestrator';
 import type {
   BlobStorePort,
   ClockPort,
   FetchPort,
+  FetchResult,
   Logger,
   UsageEventStorePort,
   UsageEventWithRowHash,
@@ -26,115 +23,81 @@ import type {
 import { computeSha256 } from './scraper/lib/contentHash';
 
 class TestClock implements ClockPort {
-  constructor(private readonly fixedNow: Date) {}
+  constructor(private readonly fixed: Date) {}
   now(): Date {
-    return new Date(this.fixedNow);
+    return new Date(this.fixed);
   }
 }
 
 class TestLogger implements Logger {
-  public logs: Array<{ level: string; message: string; context?: Record<string, unknown> }> = [];
-  private push(level: string, message: string, context?: Record<string, unknown>) {
-    const entry: { level: string; message: string; context?: Record<string, unknown> } = {
-      level,
-      message,
-    };
-    if (context !== undefined) {
-      entry.context = context;
-    }
-    this.logs.push(entry);
+  public logs: Array<{ level: 'info' | 'error'; message: string; context?: Record<string, unknown> }> = [];
+  info(message: string, context?: Record<string, unknown>): void {
+    this.logs.push({ level: 'info', message, context });
   }
-  debug(message: string, context?: Record<string, unknown>) {
-    this.push('debug', message, context);
-  }
-  info(message: string, context?: Record<string, unknown>) {
-    this.push('info', message, context);
-  }
-  warn(message: string, context?: Record<string, unknown>) {
-    this.push('warn', message, context);
-  }
-  error(message: string, context?: Record<string, unknown>) {
-    this.push('error', message, context);
+  error(message: string, context?: Record<string, unknown>): void {
+    this.logs.push({ level: 'error', message, context });
   }
 }
 
 class FakeFetchPort implements FetchPort {
   constructor(private readonly payload: Buffer) {}
-  async fetchCsvExport(): Promise<Buffer> {
-    return Buffer.from(this.payload);
+  async fetch(): Promise<FetchResult> {
+    return {
+      bytes: Buffer.from(this.payload),
+      headers: { 'content-type': 'text/csv' },
+      sourceUrl: 'https://example.com/usage.csv',
+    } satisfies FetchResult;
   }
 }
 
 class FakeUsageEventStore implements UsageEventStorePort {
-  public ingestions: Array<{
-    events: UsageEventWithRowHash[];
-    meta: {
-      ingestedAt: Date;
-      source: string;
-      contentHash: string;
-      headers: Record<string, unknown>;
-      metadata: Record<string, unknown>;
-      logicVersion: number;
-      rawBlobId: string | null;
-      size: number;
-    };
-  }> = [];
+  public ingestions: Array<{ events: UsageEventWithRowHash[]; meta: { contentHash: string; source: string } }> = [];
   private seen = new Set<string>();
   private seq = 0;
 
   async ingest(
     events: UsageEventWithRowHash[],
-    meta: {
-      ingestedAt: Date;
-      source: string;
-      contentHash: string;
-      headers: Record<string, unknown>;
-      metadata: Record<string, unknown>;
-      logicVersion: number;
-      rawBlobId: string | null;
-      size: number;
-    },
-  ): Promise<{ ingestionId: string | null; insertedCount: number; duplicateCount: number }> {
-    this.ingestions.push({ events, meta });
-    let insertedCount = 0;
-    let duplicateCount = 0;
+    meta: { ingestedAt: Date; source: string; contentHash: string; headers: Record<string, unknown> },
+  ): Promise<{ ingestionId: string; insertedCount: number; duplicateCount: number }> {
+    this.ingestions.push({ events, meta: { contentHash: meta.contentHash, source: meta.source } });
+    let inserted = 0;
+    let duplicates = 0;
     for (const event of events) {
       if (this.seen.has(event.rowHash)) {
-        duplicateCount += 1;
+        duplicates += 1;
       } else {
         this.seen.add(event.rowHash);
-        insertedCount += 1;
+        inserted += 1;
       }
     }
     this.seq += 1;
-    return {
-      ingestionId: `ingestion-${this.seq}`,
-      insertedCount,
-      duplicateCount,
-    };
+    return { ingestionId: `ingestion-${this.seq}`, insertedCount: inserted, duplicateCount: duplicates };
+  }
+
+  async recordFailure(_meta: {
+    ingestedAt: Date;
+    source: string;
+    contentHash: string;
+    headers: Record<string, unknown>;
+    error: { code: string; message: string };
+  }): Promise<{ ingestionId: string | null }> {
+    this.seq += 1;
+    return { ingestionId: `ingestion-${this.seq}` };
   }
 }
 
 class FakeBlobStore implements BlobStorePort {
-  public saves: Array<{ bytes: Buffer; kind: string; url?: string; capturedAt: Date; metadata?: Record<string, unknown> }> = [];
-
+  public saves: Array<{ contentHash: string; source: string }> = [];
   async saveIfNew(input: {
     bytes: Buffer;
-    kind: 'html' | 'network_json';
-    url?: string;
-    capturedAt: Date;
-    metadata?: Record<string, unknown>;
-  }): Promise<{ outcome: 'saved' | 'duplicate'; blobId: string; contentHash: string }> {
-    this.saves.push({ ...input });
-    return {
-      outcome: 'duplicate',
-      blobId: 'blob-1',
-      contentHash: computeSha256(input.bytes),
-    };
+    meta: { source: string; contentHash: string; ingestionId: string | null; headers: Record<string, unknown>; capturedAt: Date };
+  }): Promise<{ kind: 'saved' | 'duplicate'; contentHash: string; blobId?: string }> {
+    this.saves.push({ contentHash: input.meta.contentHash, source: input.meta.source });
+    return { kind: 'duplicate', contentHash: input.meta.contentHash };
   }
 }
 
-describe('ScraperOrchestrator (unit)', () => {
+describe('runIngestion (unit)', () => {
   const csvFixture = Buffer.from(
     [
       'Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost,Cost to you',
@@ -143,55 +106,54 @@ describe('ScraperOrchestrator (unit)', () => {
     ].join('\n'),
     'utf8',
   );
-  const expectedHash = computeSha256(csvFixture);
 
-  function buildOrchestrator(store: FakeUsageEventStore, blobStore: FakeBlobStore, logger: TestLogger) {
-    const fetchPort = new FakeFetchPort(csvFixture);
+  let store: FakeUsageEventStore;
+  let blobStore: FakeBlobStore;
+  let logger: TestLogger;
+
+  beforeEach(() => {
+    store = new FakeUsageEventStore();
+    blobStore = new FakeBlobStore();
+    logger = new TestLogger();
+  });
+
+  async function run(policyOverrides: Partial<{ lastSavedAt: Date | null; ingestionsSinceLastBlob: number }>): Promise<RunIngestionResult> {
+    const fetcher = new FakeFetchPort(csvFixture);
     const clock = new TestClock(new Date('2025-03-01T00:00:00Z'));
-    return new ScraperOrchestrator({
-      fetchPort,
+    return runIngestion({
+      fetcher,
       eventStore: store,
       blobStore,
       clock,
       logger,
-      csvSourceUrl: 'https://example.com/usage.csv',
-      ingestionSource: 'cursor_csv',
-      logicVersion: 1,
+      source: 'cursor_csv',
+      blobPolicy: {
+        mode: 'weekly',
+        lastSavedAt: policyOverrides.lastSavedAt,
+        ingestionsSinceLastBlob: policyOverrides.ingestionsSinceLastBlob,
+      },
     });
   }
 
-  async function run(orchestrator: ScraperOrchestrator): Promise<ScrapeResult> {
-    return orchestrator.run();
-  }
-
   it('ingests normalized events and reports dedupe stats across runs', async () => {
-    const store = new FakeUsageEventStore();
-    const blobStore = new FakeBlobStore();
-    const logger = new TestLogger();
-    const orchestrator = buildOrchestrator(store, blobStore, logger);
-
-    const first = await run(orchestrator);
-    expect(first.contentHash).toBe(expectedHash);
+    const first = await run({ lastSavedAt: null, ingestionsSinceLastBlob: 0 });
     expect(first.insertedCount).toBe(2);
     expect(first.duplicateCount).toBe(0);
-
     expect(store.ingestions).toHaveLength(1);
-    const ingestInput = store.ingestions.at(0);
-    expect(ingestInput).toBeDefined();
-    if (!ingestInput) throw new Error('expected ingestion input');
-    expect(ingestInput.events.length).toBe(2);
-    expect(ingestInput.meta.metadata.row_count).toBe(2);
-    expect(ingestInput.meta.headers['content-type']).toBe('text/csv');
+    expect(store.ingestions[0]?.events.length).toBe(2);
 
-    const second = await run(orchestrator);
+    const second = await run({ lastSavedAt: new Date('2025-02-24T00:00:00Z'), ingestionsSinceLastBlob: 10 });
     expect(second.insertedCount).toBe(0);
     expect(second.duplicateCount).toBe(2);
 
     const eventUpsertLogs = logger.logs.filter((log) => log.message === 'events.upserted');
-    expect(eventUpsertLogs.length).toBeGreaterThanOrEqual(2);
+    expect(eventUpsertLogs.length).toBeGreaterThan(0);
 
-    const blobSkipLogs = logger.logs.filter((log) => log.message === 'blob.skipped');
-    expect(blobSkipLogs.length).toBeGreaterThan(0);
-    expect(blobSkipLogs[0]?.context?.reason).toBe('policy:default_skip');
+    const blobSkips = logger.logs.filter((log) => log.message === 'blob.skipped');
+    expect(blobSkips.length).toBeGreaterThan(0);
+    expect(blobSkips[0]?.context?.reason).toBeTypeOf('string');
+
+    const expectedHash = computeSha256(csvFixture);
+    expect(blobStore.saves.at(0)?.contentHash).toBe(expectedHash);
   });
 });

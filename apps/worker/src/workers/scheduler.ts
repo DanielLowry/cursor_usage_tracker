@@ -2,7 +2,7 @@
 
 import { Queue } from 'bullmq';
 import { getRedis } from '@cursor-usage/redis';
-import { scraperQueue } from './scraper';
+import { scraperQueue } from './scrape';
 
 const connection = getRedis();
 
