@@ -65,7 +65,7 @@ describeIfDb('ingestNormalizedUsageEvents (db)', () => {
     const paramsA: IngestNormalizedUsageEventsParams = {
       normalizedEvents: [makeEvent(), makeEvent({ output_tokens: 7 })],
       ingestedAt,
-      rawBlobId: 'blob-1',
+      rawBlobId: null,
       contentHash,
       headers: headers1,
       metadata: { source_file: 'A.csv' },
@@ -81,7 +81,7 @@ describeIfDb('ingestNormalizedUsageEvents (db)', () => {
     // Re-run with same contentHash but different headers/metadata/rawBlobId to force update path
     const paramsB: IngestNormalizedUsageEventsParams = {
       ...paramsA,
-      rawBlobId: 'blob-2',
+      rawBlobId: null,
       headers: headers2,
       metadata: { source_file: 'A.csv', rerun: true },
     };
@@ -93,7 +93,7 @@ describeIfDb('ingestNormalizedUsageEvents (db)', () => {
     const ingestions = await prisma.ingestion.findMany({ orderBy: { ingested_at: 'asc' } });
     expect(ingestions.length).toBe(1);
     expect(ingestions[0]?.headers).toMatchObject(headers2);
-    expect(ingestions[0]?.raw_blob_id).toBe('blob-2');
+    expect(ingestions[0]?.raw_blob_id).toBeNull();
 
     const links = await prisma.eventIngestion.findMany();
     expect(links.length).toBe(2);
