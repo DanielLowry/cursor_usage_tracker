@@ -47,7 +47,7 @@
     "worker:dev": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/index.ts",
     "web:dev:lan": "dotenv -e .env.development.local -- pnpm --filter ./apps/web exec next dev -H 0.0.0.0 -p ${PORT:-3000}",
 
-    "web:pdn:lan": "dotenv -e .env.production.local -- pnpm --filter ./apps/web exec next dev -H 0.0.0.0 -p ${PORT:-3000}",
+    "web:pdn:lan": "dotenv -e .env.production.local -- pnpm --filter ./apps/web exec next dev -H 0.0.0.0 -p ${PORT:-4000}",
 
     "dev:all": "concurrently -n worker,web -c auto \"pnpm worker:dev\" \"pnpm web:dev:lan\"",
     "setup:dev": "pnpm env:init && pnpm db:generate && pnpm db:migrate:dev && pnpm onboard",
