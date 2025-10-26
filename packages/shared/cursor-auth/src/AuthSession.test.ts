@@ -177,11 +177,6 @@ describe('AuthSession - File I/O (no network)', () => {
     expect(headers['Cookie']).toContain('duplicate_cookie=second_value');
     expect(headers['Cookie']).not.toContain('first_value');
 
-    // Test that the hash is stable and reflects the last-write-wins logic if buildCookieHeader handles it
-    const expectedCookiesForHash: RawCookie[] = [
-      { name: 'duplicate_cookie', value: 'second_value', domain: 'cursor.com', path: '/', expires: 2000000000 },
-    ];
-    const expectedHash = crypto.createHash('sha256').update(JSON.stringify(expectedCookiesForHash)).digest('hex');
     // This will actually be based on the raw sessionCookies array, not the filtered one by deriveRawCookiesFromSessionData.
     // So the hash will include both if they are present in the loaded state.
     // Let's adjust the expectation to what AuthSession.preview() actually computes
