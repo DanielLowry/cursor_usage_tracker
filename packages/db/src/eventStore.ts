@@ -1,3 +1,12 @@
+/**
+ * File: packages/db/src/eventStore.ts
+ *
+ * Purpose:
+ * - Persist normalized usage events and their ingestion metadata using Prisma.
+ * - Deduplicate events via a deterministic row hash, upserting as needed.
+ * - Link usage events to the specific ingestion that produced them.
+ * - Provide helpers to ingest raw payloads (e.g., network JSON) and to record failed ingestions.
+ */
 import { Prisma } from '@prisma/client';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import prisma from './client';
@@ -24,6 +33,9 @@ type EnsureIngestionParams = {
   status: 'completed' | 'failed';
 };
 
+/**
+ * Convert a nullable object to a Prisma-compatible JSON input, preserving explicit nulls.
+ */
 function toJsonInput(value: Record<string, unknown> | null | undefined): JsonInput {
   if (value === null || value === undefined) {
     return Prisma.JsonNull;
@@ -31,6 +43,10 @@ function toJsonInput(value: Record<string, unknown> | null | undefined): JsonInp
   return value as Prisma.InputJsonValue;
 }
 
+/**
+ * Create or update an `ingestion` record.
+ * - On unique content hash conflicts (P2002), updates the existing record with latest status/metadata.
+ */
 async function ensureIngestion(
   tx: Prisma.TransactionClient,
   params: EnsureIngestionParams,
@@ -74,6 +90,9 @@ async function ensureIngestion(
   }
 }
 
+/**
+ * Build the data shape for inserting a `usageEvent` row from a normalized event.
+ */
 function buildUsageEventCreateData(
   event: NormalizedUsageEvent,
   rowHash: string,
@@ -104,6 +123,9 @@ function buildUsageEventCreateData(
   } satisfies Prisma.UsageEventCreateManyInput;
 }
 
+/**
+ * Link a set of usage event row hashes to an ingestion via the join table.
+ */
 async function linkToIngestion(
   tx: Prisma.TransactionClient,
   rowHashes: string[],
@@ -120,6 +142,10 @@ async function linkToIngestion(
   });
 }
 
+/**
+ * Compose ingestion metadata including counts, row hashes and logic version.
+ * Also carries forward optional billing period boundaries from the first event.
+ */
 function buildIngestionMetadata(
   base: Record<string, unknown> | null | undefined,
   rows: EventWithHash[],
@@ -157,6 +183,12 @@ export type IngestNormalizedUsageEventsResult = {
   usageEventIds: string[];
 };
 
+/**
+ * Ingest a batch of already-normalized usage events.
+ * - Computes deterministic row hashes to dedupe existing events.
+ * - Inserts new events; updates `last_seen_at`/`logic_version` for duplicates.
+ * - Records an `ingestion` and links events to it.
+ */
 export async function ingestNormalizedUsageEvents(
   params: IngestNormalizedUsageEventsParams,
 ): Promise<IngestNormalizedUsageEventsResult> {
@@ -236,6 +268,10 @@ export type IngestUsagePayloadParams = {
   source?: string | null;
 };
 
+/**
+ * Ingest a raw provider/network payload by first normalizing it and then delegating
+ * to `ingestNormalizedUsageEvents`.
+ */
 export async function ingestUsagePayload(
   params: IngestUsagePayloadParams,
 ): Promise<IngestNormalizedUsageEventsResult> {
@@ -265,6 +301,9 @@ export type RecordFailedIngestionParams = {
   error: { code: string; message: string };
 };
 
+/**
+ * Persist a failed ingestion attempt with error and optional size metadata.
+ */
 export async function recordFailedIngestion(params: RecordFailedIngestionParams): Promise<{ ingestionId: string | null }> {
   const metadata = {
     ...(params.metadata ?? {}),
