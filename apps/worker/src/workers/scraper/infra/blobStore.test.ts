@@ -61,7 +61,7 @@ describeIfDb('PrismaBlobStore', () => {
     const meta = {
       source: 'https://example.com/page.html',
       contentHash,
-      ingestionId: 'ing-123',
+      ingestionId: null,
       headers: { 'x-test': 'yes' },
       capturedAt,
     } as const;
@@ -75,7 +75,7 @@ describeIfDb('PrismaBlobStore', () => {
       headers: { 'x-test': 'yes' },
       source: 'https://example.com/page.html',
       captured_at: capturedAt.toISOString(),
-      ingestion_id: 'ing-123',
+      ingestion_id: null,
     });
   });
 });
