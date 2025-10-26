@@ -1,4 +1,5 @@
 import { beforeAll, afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { createHash } from 'crypto';
 import prisma from '../../../../../../packages/db/src/client';
 import type { Logger } from '../ports';
 import { PrismaBlobStore } from './blobStore';
@@ -36,11 +37,20 @@ describeIfDb('PrismaBlobStore', () => {
     const payload = Buffer.from(JSON.stringify({ value: 1 }));
     const capturedAt = new Date('2025-02-05T00:00:00Z');
 
-    const first = await store.saveIfNew({ bytes: payload, kind: 'network_json', capturedAt });
-    const second = await store.saveIfNew({ bytes: payload, kind: 'network_json', capturedAt });
+    const contentHash = createHash('sha256').update(payload).digest('hex');
+    const meta = {
+      source: 'https://example.com/data.json',
+      contentHash,
+      ingestionId: null,
+      headers: {},
+      capturedAt,
+    } as const;
 
-    expect(first.outcome).toBe('saved');
-    expect(second.outcome).toBe('duplicate');
+    const first = await store.saveIfNew({ bytes: payload, meta });
+    const second = await store.saveIfNew({ bytes: payload, meta });
+
+    expect(first.kind).toBe('saved');
+    expect(second.kind).toBe('duplicate');
     expect(second.blobId).toBe(first.blobId);
   });
 
@@ -49,22 +59,25 @@ describeIfDb('PrismaBlobStore', () => {
     const payload = Buffer.from('csv-data');
     const capturedAt = new Date('2025-02-05T00:00:00Z');
 
-    const result = await store.saveIfNew({
-      bytes: payload,
-      kind: 'html',
+    const contentHash = createHash('sha256').update(payload).digest('hex');
+    const meta = {
+      source: 'https://example.com/page.html',
+      contentHash,
+      ingestionId: 'ing-123',
+      headers: { 'x-test': 'yes' },
       capturedAt,
-      metadata: { reason: 'test' },
-    });
+    } as const;
 
-    expect(result.outcome).toBe('saved');
+    const result = await store.saveIfNew({ bytes: payload, meta });
+
+    expect(result.kind).toBe('saved');
 
     const row = await prisma.rawBlob.findUniqueOrThrow({ where: { id: result.blobId } });
     expect(row.metadata).toMatchObject({
-      provenance: {
-        fetched_at: capturedAt.toISOString(),
-        size_bytes: payload.length,
-      },
-      reason: 'test',
+      headers: { 'x-test': 'yes' },
+      source: 'https://example.com/page.html',
+      captured_at: capturedAt.toISOString(),
+      ingestion_id: 'ing-123',
     });
   });
 });
