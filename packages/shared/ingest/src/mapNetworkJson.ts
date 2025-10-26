@@ -5,6 +5,8 @@ import { parseCurrencyToCents, parseIntSafe, toUtcMidnight } from '@cursor-usage
 
 // Minimal schema for incoming network JSON rows; adapt as real payload evolves
 const usageRowSchema = z.object({
+  // Optional when the source is CSV; if absent we fall back to batch capturedAt
+  captured_at: z.union([z.string(), z.date()]).optional(),
   // CSV columns: Date,Kind,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost
   model: z.string(),
   kind: z.string().optional(),
@@ -58,9 +60,15 @@ export function mapNetworkJson(raw: unknown, capturedAt: Date, rawBlobId?: strin
     const apiCents = parseCurrencyToCents(apiRaw ?? 0);
     const costToYouRaw = (r as any).cost_to_you ?? (r as any).cost_to_you ?? '';
     const costToYouCents = parseCurrencyToCents(costToYouRaw ?? 0);
+    const rowCapturedAt =
+      r.captured_at instanceof Date
+        ? r.captured_at
+        : (typeof r.captured_at === 'string' && r.captured_at.trim())
+        ? new Date(r.captured_at)
+        : capturedAt;
 
     return {
-      captured_at: new Date(capturedAt),
+      captured_at: new Date(rowCapturedAt),
       kind: (r as any).Kind || (r as any).kind || null,
       model: r.model,
       max_mode: (r as any)['Max Mode'] || (r as any).max_mode || null,
