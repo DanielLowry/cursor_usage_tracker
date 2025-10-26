@@ -18,11 +18,16 @@
     "format:check": "prettier --check \"**/*.{ts,tsx,md}\"",
     "print:config": "tsx scripts/print-config.ts",
     "workers:scraper": "tsx apps/worker/src/workers/scraper.ts",
+
+
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
     "db:migrate:dev": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate dev",
     "db:status:dev": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate status",
+
+    "db:migrate:pdn": "dotenv -e .env.production.local -- pnpm --filter ./packages/db exec prisma migrate dev",
+    "db:status:pdn": "dotenv -e .env.production.local -- pnpm --filter ./packages/db exec prisma migrate status",
 
     "env:init": "test -f .env.development.local || cp .env.example .env.development.local",
 
@@ -41,6 +46,8 @@
 
     "worker:dev": "dotenv -e .env.development.local -- pnpm --filter ./apps/worker exec tsx src/index.ts",
     "web:dev:lan": "dotenv -e .env.development.local -- pnpm --filter ./apps/web exec next dev -H 0.0.0.0 -p ${PORT:-3000}",
+
+    "web:pdn:lan": "dotenv -e .env.production.local -- pnpm --filter ./apps/web exec next dev -H 0.0.0.0 -p ${PORT:-3000}",
 
     "dev:all": "concurrently -n worker,web -c auto \"pnpm worker:dev\" \"pnpm web:dev:lan\"",
     "setup:dev": "pnpm env:init && pnpm db:generate && pnpm db:migrate:dev && pnpm onboard",
