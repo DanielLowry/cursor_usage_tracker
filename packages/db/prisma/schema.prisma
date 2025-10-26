@@ -1,78 +1,126 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
+// Generate the TypeScript Prisma Client used by application code.
 generator client {
+  // Target the JavaScript Prisma Client implementation.
   provider = "prisma-client-js"
 }
 
+// Connect Prisma to the Postgres database defined by DATABASE_URL.
 datasource db {
+  // Specify the SQL dialect used for schema generation.
   provider = "postgresql"
+  // Use the runtime connection string provided via environment variable.
   url      = env("DATABASE_URL")
 }
 
-// Enums for model fields
+/// Enumerates the source systems that can produce normalized usage rows.
 enum DataSource {
+  /// Row derived from the Cursor network JSON export.
   network_json
+  /// Row derived from scraping the usage table in the DOM.
   dom_table
 
   @@map("data_source")
 }
 
+/// Classifies the type of raw blob persisted for audit/replay purposes.
 enum BlobKind {
+  /// Raw network JSON payload captured from the Cursor dashboard.
   network_json
+  /// HTML snapshot captured from the rendered usage table.
   html
 
   @@map("blob_kind")
 }
 
+/// Distinguishes the kinds of alerts that can be raised by the system.
 enum AlertKind {
+  /// Spending has crossed a configured threshold.
   threshold_hit
+  /// Forecasted usage is projected to exceed the configured budget.
   projection_overrun
+  /// A scraping or ingestion attempt failed.
   scrape_error
+  /// No data has been received for 24 hours.
   no_data_24h
 
   @@map("alert_kind")
 }
 
+/// Deduplicated usage row materialized from Cursor exports.
 model UsageEvent {
-  row_hash                           String   @id @db.Text
-  captured_at                        DateTime @db.Timestamptz()
-  kind                               String?
-  model                              String
-  max_mode                           String?
-  input_with_cache_write_tokens      Int
-  input_without_cache_write_tokens   Int
-  cache_read_tokens                  Int
-  output_tokens                      Int
-  total_tokens                       Int
-  api_cost_cents                     Int
-  api_cost_raw                       String?  @db.Text
-  cost_to_you_cents                  Int
-  cost_to_you_raw                    String?  @db.Text
-  billing_period_start               DateTime? @db.Date
-  billing_period_end                 DateTime? @db.Date
-  source                             String
-  first_seen_at                      DateTime @db.Timestamptz()
-  last_seen_at                       DateTime @db.Timestamptz()
-  logic_version                      Int?
-  event_ingestions                   EventIngestion[]
+  /// Stable hash of the normalized row and primary key for deduplication.
+  row_hash                         String           @id @db.Text
+  /// Timestamp from Cursor indicating when the usage occurred.
+  captured_at                      DateTime         @db.Timestamptz()
+  /// Optional upstream classification of the event (e.g., chat, command).
+  kind                             String?
+  /// Cursor-reported model identifier that handled the request.
+  model                            String
+  /// Optional maximum mode (e.g., turbo, precise) reported by Cursor.
+  max_mode                         String?
+  /// Tokens billed as cache writes when the cache was used.
+  input_with_cache_write_tokens    Int
+  /// Tokens billed for input when cache write was not involved.
+  input_without_cache_write_tokens Int
+  /// Tokens read from the cache for this event.
+  cache_read_tokens                Int
+  /// Tokens generated as output by the model.
+  output_tokens                    Int
+  /// Total tokens Cursor billed for the event.
+  total_tokens                     Int
+  /// Cost in cents charged by Cursor for the API call.
+  api_cost_cents                   Int
+  /// Raw cost string from Cursor (before normalization).
+  api_cost_raw                     String?          @db.Text
+  /// Cost in cents passed on to the user after Cursor markup or discounts.
+  cost_to_you_cents                Int
+  /// Raw "cost to you" string as reported upstream.
+  cost_to_you_raw                  String?          @db.Text
+  /// Start date of the billing period that includes this event.
+  billing_period_start             DateTime?        @db.Date
+  /// End date of the billing period that includes this event.
+  billing_period_end               DateTime?        @db.Date
+  /// Identifier describing which ingestion pipeline observed the event.
+  source                           String
+  /// Timestamp when this row hash was first seen during ingestion.
+  first_seen_at                    DateTime         @db.Timestamptz()
+  /// Timestamp of the most recent ingestion that observed this row hash.
+  last_seen_at                     DateTime         @db.Timestamptz()
+  /// Version of the normalization logic used to compute the hash.
+  logic_version                    Int?
+  /// Join records linking this usage event back to ingestion batches.
+  event_ingestions                 EventIngestion[]
 
-  @@map("usage_event")
   @@index([billing_period_start, billing_period_end])
+  @@map("usage_event")
 }
 
+/// Immutable raw payload captured during scraping for audit and replay.
 model RawBlob {
-  id            String   @id @default(uuid()) @db.Uuid
-  captured_at   DateTime @db.Timestamptz()
-  kind          BlobKind
-  url           String?
-  payload       Bytes
-  content_hash  String   @db.Text
-  content_type  String?  @db.Text
-  schema_version String? @db.Text
-  metadata      Json?
+  /// Primary key for the blob row.
+  id             String   @id @default(uuid()) @db.Uuid
+  /// Time when the payload was captured from Cursor.
+  captured_at    DateTime @db.Timestamptz()
+  /// The payload classification (e.g., network JSON vs HTML snapshot).
+  kind           BlobKind
+  /// Optional source URL of the captured payload.
+  url            String?
+  /// Gzipped raw payload bytes retained for reprocessing.
+  payload        Bytes
+  /// Hash of the raw (pre-gzip) payload used to dedupe blobs.
+  content_hash   String   @db.Text
+  /// Optional MIME type describing the payload contents.
+  content_type   String?  @db.Text
+  /// Optional schema version of the payload format.
+  schema_version String?  @db.Text
+  /// JSON metadata such as byte size or scrape diagnostics.
+  metadata       Json?
 
-  ingestions    Ingestion[]
+  /// Ingestion runs that referenced this blob.
+  ingestions Ingestion[]
 
   // no direct relation to UsageEvent anymore
 
@@ -80,70 +128,106 @@ model RawBlob {
   @@map("raw_blobs")
 }
 
+/// Metadata describing a single ingestion run of Cursor usage data.
 model Ingestion {
-  id            String   @id @default(uuid()) @db.Uuid
-  source        String
-  ingested_at   DateTime @db.Timestamptz()
-  content_hash  String?  @db.Text
-  headers       Json?
-  metadata      Json?
-  status        String
-  raw_blob_id   String?  @db.Uuid
-  raw_blob      RawBlob? @relation(fields: [raw_blob_id], references: [id])
-  events        EventIngestion[]
+  /// Primary key for the ingestion batch.
+  id           String           @id @default(uuid()) @db.Uuid
+  /// Identifier of the subsystem that performed the scrape.
+  source       String
+  /// Timestamp when the batch was ingested into the database.
+  ingested_at  DateTime         @db.Timestamptz()
+  /// Stable hash of the raw payload associated with this run (if available).
+  content_hash String?          @db.Text
+  /// Raw HTTP headers or contextual information from the fetch.
+  headers      Json?
+  /// Extended metadata describing the run, including row hashes.
+  metadata     Json?
+  /// Status of the ingestion (e.g., completed or failed).
+  status       String
+  /// Optional foreign key to the stored raw blob for this run.
+  raw_blob_id  String?          @db.Uuid
+  /// Relation to the blob row for payload retrieval.
+  raw_blob     RawBlob?         @relation(fields: [raw_blob_id], references: [id])
+  /// Join entries linking this batch to the usage events it observed.
+  events       EventIngestion[]
 
-  @@map("ingestion")
   @@unique([content_hash])
   @@index([ingested_at])
+  @@map("ingestion")
 }
 
+/// Join table connecting usage events with the ingestions that saw them.
 model EventIngestion {
+  /// Usage event row hash referenced by this ingestion.
   row_hash     String
-  ingestion_id String  @db.Uuid
+  /// Identifier of the ingestion batch containing the event.
+  ingestion_id String @db.Uuid
 
+  /// Relation to the deduplicated usage event record.
   usage_event UsageEvent @relation(fields: [row_hash], references: [row_hash])
+  /// Relation to the ingestion metadata row.
   ingestion   Ingestion  @relation(fields: [ingestion_id], references: [id])
 
   @@id([row_hash, ingestion_id])
-  @@map("event_ingestion")
   @@index([ingestion_id])
+  @@map("event_ingestion")
 }
 
+/// Tracks configured spending budgets for alerting and projections.
 model Budget {
+  /// Primary key for the budget record.
   id                     String   @id @default(uuid()) @db.Uuid
+  /// Budget amount in cents that is currently in effect.
   effective_budget_cents Int
+  /// Timestamp when the budget configuration was created.
   created_at             DateTime @default(now()) @db.Timestamptz()
 
   @@map("budgets")
 }
 
+/// Stores alert occurrences emitted by monitoring tasks.
 model Alert {
+  /// Primary key for the alert.
   id           String    @id @default(uuid()) @db.Uuid
+  /// Classification of alert that was triggered.
   kind         AlertKind
+  /// Human-readable details for operators.
   details      String
+  /// When the alert was triggered.
   triggered_at DateTime  @db.Timestamptz()
+  /// When the alert was cleared, if applicable.
   cleared_at   DateTime? @db.Timestamptz()
 
-  @@map("alerts")
   @@index([triggered_at])
+  @@map("alerts")
 }
 
+/// Hourly rollups for usage or cost metrics displayed in the UI.
 model MetricHourly {
+  /// Primary key for the metric row.
   id         String   @id @default(uuid()) @db.Uuid
+  /// Logical metric key (e.g., tokens.total) being aggregated.
   metric_key String
+  /// Timestamp truncated to the hour for the metric bucket.
   ts_hour    DateTime @db.Timestamptz()
+  /// Aggregated metric value for the hour.
   value      Int
 
-  @@map("metric_hourly")
   @@index([metric_key, ts_hour])
+  @@map("metric_hourly")
 }
 
+/// Daily rollups for usage or cost metrics displayed in the UI.
 model MetricDaily {
+  /// Primary key for the metric row.
   id         String   @id @default(uuid()) @db.Uuid
+  /// Logical metric key (e.g., tokens.total) being aggregated.
   metric_key String
+  /// Date for the daily metric bucket.
   date       DateTime @db.Date
+  /// Aggregated metric value for the day.
   value      Int
 
-  @@map("metric_daily")
   @@index([metric_key, date])
+  @@map("metric_daily")
 }
