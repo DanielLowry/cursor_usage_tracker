@@ -1,6 +1,7 @@
 // Relative path: apps/web/app/dashboard/page.tsx
 
 import React from 'react';
+import { ScrapeButton } from './ScrapeButton';
 
 export default async function DashboardPage() {
   // Fetch minimal summary from local API route. In production this is intra-process.
@@ -43,6 +44,12 @@ export default async function DashboardPage() {
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">Dashboard</h1>
         <div className="bg-white shadow rounded-lg p-6">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Trigger a new scrape run.</p>
+            </div>
+            <ScrapeButton />
+          </div>
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
             <div className="bg-purple-50 p-4 rounded-lg">
               <h3 className="text-sm font-medium text-purple-600">Usage Events</h3>
