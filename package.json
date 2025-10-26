@@ -26,7 +26,7 @@
     "db:migrate:dev": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate dev",
     "db:status:dev": "dotenv -e .env.development.local -- pnpm --filter ./packages/db exec prisma migrate status",
 
-    "db:migrate:pdn": "dotenv -e .env.production.local -- pnpm --filter ./packages/db exec prisma migrate dev",
+    "db:migrate:pdn": "dotenv -e .env.production.local -- pnpm --filter ./packages/db exec prisma migrate deploy",
     "db:status:pdn": "dotenv -e .env.production.local -- pnpm --filter ./packages/db exec prisma migrate status",
 
     "env:init": "test -f .env.development.local || cp .env.example .env.development.local",
