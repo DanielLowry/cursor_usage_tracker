@@ -12,30 +12,24 @@ export default function Home() {
             Track your Cursor IDE usage and analyze your coding patterns.
           </p>
           <div className="mt-5 max-w-md mx-auto sm:flex sm:justify-center md:mt-8">
-            <div className="rounded-md shadow">
-              <a
-                href="/dashboard"
-                className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 md:py-4 md:text-lg md:px-10"
-              >
-                View Dashboard
-              </a>
-            </div>
-            <div className="mt-3 rounded-md shadow sm:mt-0 sm:ml-3">
-              <a
-                href="/admin/login-helper"
-                className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-blue-600 bg-white hover:bg-gray-50 md:py-4 md:text-lg md:px-10"
-              >
-                Login Helper
-              </a>
-            </div>
-            <div className="mt-3 rounded-md shadow sm:mt-0 sm:ml-3">
-              <a
-                href="/explorer"
-                className="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium rounded-md text-white bg-green-600 hover:bg-green-700 md:py-4 md:text-lg md:px-10"
-              >
-                Raw Data Explorer
-              </a>
-            </div>
+            <a
+              href="/dashboard"
+              className="rounded-md shadow w-full inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium text-white bg-blue-600 hover:bg-blue-700 md:py-4 md:text-lg md:px-10"
+            >
+              View Dashboard
+            </a>
+            <a
+              href="/admin/login-helper"
+              className="mt-3 rounded-md shadow w-full inline-flex items-center justify-center px-8 py-3 border border-gray-200 text-base font-medium text-blue-600 bg-white hover:bg-gray-50 md:py-4 md:text-lg md:px-10 sm:mt-0 sm:ml-3"
+            >
+              Login Helper
+            </a>
+            <a
+              href="/explorer"
+              className="mt-3 rounded-md shadow w-full inline-flex items-center justify-center px-8 py-3 border border-transparent text-base font-medium text-white bg-green-600 hover:bg-green-700 md:py-4 md:text-lg md:px-10 sm:mt-0 sm:ml-3"
+            >
+              Raw Data Explorer
+            </a>
           </div>
         </div>
       </div>

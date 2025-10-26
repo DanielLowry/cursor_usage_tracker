@@ -4,13 +4,40 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
 export default function Navigation() {
   const pathname = usePathname();
+  const [auth, setAuth] = useState<{ isAuthenticated: boolean; lastChecked?: string } | null>(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchStatus = async () => {
+      try {
+        const res = await fetch('/api/auth/status', { cache: 'no-store' });
+        const data = await res.json();
+        if (isMounted) setAuth({ isAuthenticated: !!data.isAuthenticated, lastChecked: data.lastChecked });
+      } catch {
+        if (isMounted) setAuth({ isAuthenticated: false });
+      }
+    };
+    // initial + 30s interval
+    void fetchStatus();
+    const id = setInterval(() => {
+      setTick((n) => n + 1);
+      void fetchStatus();
+    }, 30_000);
+    return () => {
+      isMounted = false;
+      clearInterval(id);
+    };
+  }, []);
 
   const navItems = [
     { href: '/', label: 'Home' },
     { href: '/dashboard', label: 'Dashboard' },
+    { href: '/explorer', label: 'Raw Data Explorer' },
     { href: '/admin/login-helper', label: 'Login Helper' },
   ];
 
@@ -43,6 +70,25 @@ export default function Navigation() {
               })}
             </div>
           </div>
+          <div className="hidden sm:flex items-center">
+            <div
+              title={auth?.lastChecked ? `Last checked: ${new Date(auth.lastChecked).toLocaleString()}` : 'Checking auth...'}
+              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${
+                auth == null
+                  ? 'border-gray-300 text-gray-600'
+                  : auth.isAuthenticated
+                    ? 'border-green-200 text-green-700 bg-green-50'
+                    : 'border-red-200 text-red-700 bg-red-50'
+              }`}
+            >
+              <span
+                className={`mr-1 h-2 w-2 rounded-full ${
+                  auth == null ? 'bg-gray-400 animate-pulse' : auth.isAuthenticated ? 'bg-green-500' : 'bg-red-500'
+                }`}
+              />
+              {auth == null ? 'Checking…' : auth.isAuthenticated ? 'Authenticated' : 'Not Authenticated'}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -65,6 +111,24 @@ export default function Navigation() {
               </Link>
             );
           })}
+          <div className="px-4 py-2">
+            <div
+              className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${
+                auth == null
+                  ? 'border-gray-300 text-gray-600'
+                  : auth.isAuthenticated
+                    ? 'border-green-200 text-green-700 bg-green-50'
+                    : 'border-red-200 text-red-700 bg-red-50'
+              }`}
+            >
+              <span
+                className={`mr-1 h-2 w-2 rounded-full ${
+                  auth == null ? 'bg-gray-400 animate-pulse' : auth.isAuthenticated ? 'bg-green-500' : 'bg-red-500'
+                }`}
+              />
+              {auth == null ? 'Checking…' : auth.isAuthenticated ? 'Authenticated' : 'Not Authenticated'}
+            </div>
+          </div>
         </div>
       </div>
     </nav>
