@@ -193,14 +193,14 @@ PRISMA_DIR="packages/db/prisma"
 log "Assembling release directory at $RELEASE_DIR"
 
 # Copy the standalone Node runtime that Next.js produced.
-cp -R "$STANDALONE_DIR"/. "$RELEASE_DIR/"
+cp -a "$STANDALONE_DIR"/. "$RELEASE_DIR/"
 
 # Include Next.js static assets and public files required at runtime.
 mkdir -p "$RELEASE_DIR/.next"
-cp -R "$STATIC_DIR" "$RELEASE_DIR/.next/"
+cp -a "$STATIC_DIR" "$RELEASE_DIR/.next/"
 
 if [[ -d "$PUBLIC_DIR" ]]; then
-  cp -R "$PUBLIC_DIR" "$RELEASE_DIR/"
+  cp -a "$PUBLIC_DIR" "$RELEASE_DIR/"
 fi
 
 # Sanity checks to ensure the standalone runtime has required modules
@@ -215,7 +215,7 @@ fi
 # Ship Prisma schema and migrations to keep database tooling handy in production.
 if [[ -d "$PRISMA_DIR" ]]; then
   mkdir -p "$RELEASE_DIR/packages/db"
-  cp -R "$PRISMA_DIR" "$RELEASE_DIR/packages/db/"
+  cp -a "$PRISMA_DIR" "$RELEASE_DIR/packages/db/"
 fi
 
 # Provide a quick-start readme in the release artifact.

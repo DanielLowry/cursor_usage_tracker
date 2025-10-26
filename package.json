@@ -49,6 +49,7 @@
 
     "web:pdn:lan": "NODE_ENV=production dotenv -e .env.production.local -- node apps/web/server.js -H 0.0.0.0 -p ${PORT:-4000}",
 
+
     "dev:all": "concurrently -n worker,web -c auto \"pnpm worker:dev\" \"pnpm web:dev:lan\"",
     "setup:dev": "pnpm env:init && pnpm db:generate && pnpm db:migrate:dev && pnpm onboard",
     "up": "pnpm services:start && wait-on tcp:127.0.0.1:5432 tcp:127.0.0.1:6379 && pnpm dev:all",
