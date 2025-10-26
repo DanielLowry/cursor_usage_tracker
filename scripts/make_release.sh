@@ -122,7 +122,7 @@ fi
 
 ensure_command pnpm
 ensure_command git
-ensure_command zip
+ensure_command tar
 
 ###############################################################################
 # Pre-flight checks and setup
@@ -152,10 +152,10 @@ load_env_file "$ENV_FILE"
 RELEASES_DIR="$REPO_ROOT/releases"
 RELEASE_NAME="cursor-usage-web-${VERSION}"
 RELEASE_DIR="$RELEASES_DIR/$RELEASE_NAME"
-RELEASE_ZIP="${RELEASE_DIR}.zip"
+RELEASE_TGZ="${RELEASE_DIR}.tar.gz"
 
 log "Cleaning previous artifacts (if any)"
-rm -rf "$RELEASE_DIR" "$RELEASE_ZIP"
+rm -rf "$RELEASE_DIR" "$RELEASE_TGZ"
 mkdir -p "$RELEASE_DIR"
 
 ###############################################################################
@@ -203,6 +203,15 @@ if [[ -d "$PUBLIC_DIR" ]]; then
   cp -R "$PUBLIC_DIR" "$RELEASE_DIR/"
 fi
 
+# Sanity checks to ensure the standalone runtime has required modules
+if [[ ! -f "$RELEASE_DIR/apps/web/server.js" ]]; then
+  fatal "Standalone server entry not found at $RELEASE_DIR/apps/web/server.js"
+fi
+
+if [[ ! -d "$RELEASE_DIR/node_modules/next" ]]; then
+  fatal "Next runtime not found at $RELEASE_DIR/node_modules/next. The standalone bundle may be missing node_modules."
+fi
+
 # Ship Prisma schema and migrations to keep database tooling handy in production.
 if [[ -d "$PRISMA_DIR" ]]; then
   mkdir -p "$RELEASE_DIR/packages/db"
@@ -213,31 +222,35 @@ fi
 cat <<'EOF' > "$RELEASE_DIR/README-release.md"
 # Cursor Usage Tracker - Standalone Release
 
-This directory contains the standalone Next.js bundle produced by `next build`.
+This directory contains the standalone Next.js bundle produced by `next build` with `output: 'standalone'`.
 
 To run the server:
 
 ```bash
-# 1. Create a .env.production.local file alongside this README with production secrets.
-# 2. Start the server (override PORT as needed).
+# 1) Ensure you have Node.js 20+ installed on the target host
+# 2) Create a .env.production.local file alongside this README with production secrets
+# 3) Start the server (override PORT as needed)
 PORT=4000 node apps/web/server.js
 ```
 
-You can adjust `PORT` and any other environment variables before starting the server.
+Notes:
+- The `node_modules` required by the standalone build are already included under this folder.
+- If you repackage this folder, prefer a tar.gz archive to preserve symlinks.
+- You can adjust `PORT` and any other environment variables before starting the server.
 EOF
 
 ###############################################################################
-# Create the zip archive
+# Create the tar.gz archive
 ###############################################################################
 
 if [[ "$SKIP_ZIP" == false ]]; then
-  log "Creating zip archive $RELEASE_ZIP"
+  log "Creating tar.gz archive $RELEASE_TGZ"
   (
     cd "$RELEASES_DIR"
-    zip -r "$(basename "$RELEASE_ZIP")" "$(basename "$RELEASE_DIR")" >/dev/null
+    tar -czf "$(basename "$RELEASE_TGZ")" "$(basename "$RELEASE_DIR")"
   )
 else
-  log "Skipping zip archive creation as requested"
+  log "Skipping archive creation as requested"
 fi
 
 ###############################################################################
@@ -264,7 +277,7 @@ fi
 
 log "Release directory: $RELEASE_DIR"
 if [[ "$SKIP_ZIP" == false ]]; then
-  log "Release archive:   $RELEASE_ZIP"
+  log "Release archive:   $RELEASE_TGZ"
 fi
 log "To start the server: PORT=4000 node apps/web/server.js"
 
