@@ -45,15 +45,17 @@ function toJsonInput(value: Record<string, unknown> | null | undefined): JsonInp
 
 /**
  * Create or update an `ingestion` record.
- * - On unique content hash conflicts (P2002), updates the existing record with latest status/metadata.
+ * - Uses upsert to handle unique content hash conflicts atomically.
  */
 async function ensureIngestion(
   tx: Prisma.TransactionClient,
   params: EnsureIngestionParams,
 ) {
-  try {
-    return await tx.ingestion.create({
-      data: {
+  // Use upsert when we have a contentHash to handle conflicts atomically
+  if (params.contentHash) {
+    return await tx.ingestion.upsert({
+      where: { content_hash: params.contentHash },
+      create: {
         source: params.source,
         ingested_at: params.ingestedAt,
         content_hash: params.contentHash,
@@ -62,32 +64,28 @@ async function ensureIngestion(
         status: params.status,
         raw_blob_id: params.rawBlobId,
       },
+      update: {
+        status: params.status,
+        headers: params.headers,
+        metadata: params.metadata,
+        ingested_at: params.ingestedAt,
+        raw_blob_id: params.rawBlobId,
+      },
     });
-  } catch (err) {
-    if (
-      params.contentHash &&
-      err instanceof PrismaClientKnownRequestError &&
-      err.code === 'P2002'
-    ) {
-      const existing = await tx.ingestion.findFirst({
-        where: { content_hash: params.contentHash },
-      });
-      if (existing) {
-        await tx.ingestion.update({
-          where: { id: existing.id },
-          data: {
-            status: params.status,
-            headers: params.headers,
-            metadata: params.metadata,
-            ingested_at: params.ingestedAt,
-            raw_blob_id: params.rawBlobId,
-          },
-        });
-        return tx.ingestion.findUniqueOrThrow({ where: { id: existing.id } });
-      }
-    }
-    throw err;
   }
+  
+  // Fallback for cases without contentHash - just create
+  return await tx.ingestion.create({
+    data: {
+      source: params.source,
+      ingested_at: params.ingestedAt,
+      content_hash: params.contentHash,
+      headers: params.headers,
+      metadata: params.metadata,
+      status: params.status,
+      raw_blob_id: params.rawBlobId,
+    },
+  });
 }
 
 /**
