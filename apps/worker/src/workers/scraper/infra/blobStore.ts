@@ -75,7 +75,7 @@ export class PrismaBlobStore implements BlobStorePort {
             source,
             captured_at: capturedAt.toISOString(),
             ingestion_id: ingestionId,
-          },
+          } as any,
         },
         select: { id: true },
       });

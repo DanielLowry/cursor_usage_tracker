@@ -51,7 +51,7 @@ export class PrismaUsageEventStore implements UsageEventStorePort {
       });
 
       return {
-        ingestionId: result.ingestionId,
+        ingestionId: result.ingestionId as string,
         insertedCount: result.insertedCount,
         duplicateCount,
       };

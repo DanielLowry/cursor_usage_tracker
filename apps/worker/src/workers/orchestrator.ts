@@ -153,7 +153,7 @@ export async function runIngestion(options: RunIngestionOptions): Promise<RunIng
 
     const eventsWithHash: UsageEventWithRowHash[] = normalized.map((event) => ({
       ...event,
-      rowHash: computeUsageEventRowHash(event),
+      rowHash: computeUsageEventRowHash(event, 1),
     }));
 
     const ingestResult = await eventStore.ingest(eventsWithHash, {
