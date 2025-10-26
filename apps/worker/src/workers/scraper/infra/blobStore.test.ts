@@ -5,9 +5,7 @@ import type { Logger } from '../ports';
 import { PrismaBlobStore } from './blobStore';
 
 const noopLogger: Logger = {
-  debug: () => {},
   info: () => {},
-  warn: () => {},
   error: () => {},
 };
 
@@ -72,7 +70,7 @@ describeIfDb('PrismaBlobStore', () => {
 
     expect(result.kind).toBe('saved');
 
-    const row = await prisma.rawBlob.findUniqueOrThrow({ where: { id: result.blobId } });
+    const row = await prisma.rawBlob.findFirstOrThrow({ where: { id: result.blobId! } });
     expect(row.metadata).toMatchObject({
       headers: { 'x-test': 'yes' },
       source: 'https://example.com/page.html',
