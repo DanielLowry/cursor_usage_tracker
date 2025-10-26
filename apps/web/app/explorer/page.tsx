@@ -75,6 +75,7 @@ function RawCsvViewer() {
           </tbody>
         </table>
       </div>
+      <div className="text-xs text-gray-500 mt-1">Total rows: {totalRows}</div>
     </div>
   );
 }
