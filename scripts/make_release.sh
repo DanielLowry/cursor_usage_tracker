@@ -209,8 +209,8 @@ if [[ ! -f "$RELEASE_DIR/apps/web/server.js" ]]; then
   fatal "Standalone server entry not found at $RELEASE_DIR/apps/web/server.js"
 fi
 
-if [[ ! -d "$RELEASE_DIR/node_modules/next" ]]; then
-  fatal "Next runtime not found at $RELEASE_DIR/node_modules/next. The standalone bundle may be missing node_modules."
+if [[ ! -d "$RELEASE_DIR/apps/web/node_modules/next" ]]; then
+  fatal "Next runtime not found at $RELEASE_DIR/apps/web/node_modules/next. The standalone bundle may be missing node_modules."
 fi
 
 # Ship Prisma schema and migrations to keep database tooling handy in production.
