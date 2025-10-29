@@ -51,7 +51,7 @@ The script always ensures the release artifacts live under `releases/`:
 
 4. **Assemble the release folder**
    - Copies `.next/standalone` into `releases/cursor-usage-web-<version>/`.
-   - Bundles `.next/static`, `public/`, and Prisma migrations (`packages/db/prisma/`) alongside the runtime.
+   - Bundles `.next/static` (under `apps/web/.next/static`), `public/`, and Prisma migrations (`packages/db/prisma/`) alongside the runtime.
    - Drops a short `README-release.md` with startup instructions.
 
 5. **Package and tag**

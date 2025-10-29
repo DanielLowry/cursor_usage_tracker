@@ -122,7 +122,7 @@ fi
 
 ensure_command pnpm
 ensure_command git
-ensure_command tar
+ensure_command zip
 
 ###############################################################################
 # Pre-flight checks and setup
@@ -152,10 +152,10 @@ load_env_file "$ENV_FILE"
 RELEASES_DIR="$REPO_ROOT/releases"
 RELEASE_NAME="cursor-usage-web-${VERSION}"
 RELEASE_DIR="$RELEASES_DIR/$RELEASE_NAME"
-RELEASE_TGZ="${RELEASE_DIR}.tar.gz"
+RELEASE_ZIP="${RELEASE_DIR}.zip"
 
 log "Cleaning previous artifacts (if any)"
-rm -rf "$RELEASE_DIR" "$RELEASE_TGZ"
+rm -rf "$RELEASE_DIR" "$RELEASE_ZIP"
 mkdir -p "$RELEASE_DIR"
 
 ###############################################################################
@@ -196,12 +196,20 @@ log "Assembling release directory at $RELEASE_DIR"
 # Use -L to dereference pnpm symlinks so runtime deps are real files in the release.
 cp -aL "$STANDALONE_DIR"/. "$RELEASE_DIR/"
 
-# Include Next.js static assets and public files required at runtime.
-mkdir -p "$RELEASE_DIR/.next"
-cp -a "$STATIC_DIR" "$RELEASE_DIR/.next/"
+APP_RELEASE_DIR="$RELEASE_DIR/apps/web"
+
+if [[ ! -d "$APP_RELEASE_DIR" ]]; then
+  fatal "Standalone copy did not produce $APP_RELEASE_DIR"
+fi
+
+# Include Next.js static assets in the location expected by the standalone server.
+mkdir -p "$APP_RELEASE_DIR/.next"
+rm -rf "$APP_RELEASE_DIR/.next/static"
+cp -a "$STATIC_DIR" "$APP_RELEASE_DIR/.next/"
 
 if [[ -d "$PUBLIC_DIR" ]]; then
-  cp -a "$PUBLIC_DIR" "$RELEASE_DIR/"
+  mkdir -p "$APP_RELEASE_DIR/public"
+  cp -a "$PUBLIC_DIR"/. "$APP_RELEASE_DIR/public/"
 fi
 
 # Sanity checks to ensure the standalone runtime has required modules
@@ -236,19 +244,19 @@ PORT=4000 node apps/web/server.js
 
 Notes:
 - The `node_modules` required by the standalone build are already included under this folder.
-- If you repackage this folder, prefer a tar.gz archive to preserve symlinks.
+- If you repackage this folder, prefer a zip created by the release script to preserve structure.
 - You can adjust `PORT` and any other environment variables before starting the server.
 EOF
 
 ###############################################################################
-# Create the tar.gz archive
+# Create the zip archive
 ###############################################################################
 
 if [[ "$SKIP_ZIP" == false ]]; then
-  log "Creating tar.gz archive $RELEASE_TGZ"
+  log "Creating zip archive $RELEASE_ZIP"
   (
     cd "$RELEASES_DIR"
-    tar -czf "$(basename "$RELEASE_TGZ")" "$(basename "$RELEASE_DIR")"
+    zip -rq "$(basename "$RELEASE_ZIP")" "$(basename "$RELEASE_DIR")"
   )
 else
   log "Skipping archive creation as requested"
@@ -278,7 +286,7 @@ fi
 
 log "Release directory: $RELEASE_DIR"
 if [[ "$SKIP_ZIP" == false ]]; then
-  log "Release archive:   $RELEASE_TGZ"
+  log "Release archive:   $RELEASE_ZIP"
 fi
 log "To start the server: PORT=4000 node apps/web/server.js"
 
