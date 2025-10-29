@@ -232,11 +232,34 @@ if [[ ! -f "$NEXT_SERVER_ENTRY" ]]; then
   if [[ -z "$NEXT_PACKAGE_DIR" || ! -d "$NEXT_PACKAGE_DIR" ]]; then
     fatal "Unable to resolve the Next.js package directory from the workspace."
   fi
+  NEXT_PACKAGE_PARENT="$(dirname "$NEXT_PACKAGE_DIR")"
+  if [[ -z "$NEXT_PACKAGE_PARENT" || ! -d "$NEXT_PACKAGE_PARENT" ]]; then
+    fatal "Unable to determine Next.js parent node_modules directory."
+  fi
+
+  # Refresh the Next.js package contents.
+  rm -rf "$RELEASE_DIR/apps/web/node_modules/next"
+  mkdir -p "$RELEASE_DIR/apps/web/node_modules/next"
   cp -aL "$NEXT_PACKAGE_DIR/." "$RELEASE_DIR/apps/web/node_modules/next/"
+
+  # Backfill the package's sibling dependencies (e.g. @swc, @next, postcss).
+  for dependency_path in "$NEXT_PACKAGE_PARENT"/*; do
+    dependency_name="$(basename "$dependency_path")"
+    [[ "$dependency_name" == "next" ]] && continue
+    if [[ -e "$dependency_path" ]]; then
+      rm -rf "$RELEASE_DIR/apps/web/node_modules/$dependency_name"
+      cp -aL "$dependency_path" "$RELEASE_DIR/apps/web/node_modules/$dependency_name"
+    fi
+  done
 fi
 
 if [[ ! -f "$NEXT_SERVER_ENTRY" ]]; then
   fatal "Expected $NEXT_SERVER_ENTRY to exist after backfilling Next.js runtime files."
+fi
+
+SWC_HELPER_ENTRY="$RELEASE_DIR/apps/web/node_modules/@swc/helpers/_/_interop_require_default.js"
+if [[ ! -f "$SWC_HELPER_ENTRY" ]]; then
+  fatal "Expected SWC helper runtime at $SWC_HELPER_ENTRY but it was not found. Standalone build may be incomplete."
 fi
 
 # Ship Prisma schema and migrations to keep database tooling handy in production.
