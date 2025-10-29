@@ -221,6 +221,24 @@ if [[ ! -d "$RELEASE_DIR/apps/web/node_modules/next" ]]; then
   fatal "Next runtime not found at $RELEASE_DIR/apps/web/node_modules/next. The standalone bundle may be missing node_modules."
 fi
 
+# Work around a Next.js standalone tracing gap where key server runtime files
+# are sometimes omitted from the copied node_modules tree. If the primary
+# start-server entry is absent, backfill the package contents from the
+# workspace installation to keep the release self-contained.
+NEXT_SERVER_ENTRY="$RELEASE_DIR/apps/web/node_modules/next/dist/server/lib/start-server.js"
+if [[ ! -f "$NEXT_SERVER_ENTRY" ]]; then
+  log "Next.js runtime is missing start-server.js; backfilling package contents"
+  NEXT_PACKAGE_DIR="$(pnpm --filter @cursor-usage/web exec node -e 'console.log(require("path").dirname(require.resolve("next/package.json")))')"
+  if [[ -z "$NEXT_PACKAGE_DIR" || ! -d "$NEXT_PACKAGE_DIR" ]]; then
+    fatal "Unable to resolve the Next.js package directory from the workspace."
+  fi
+  cp -aL "$NEXT_PACKAGE_DIR/." "$RELEASE_DIR/apps/web/node_modules/next/"
+fi
+
+if [[ ! -f "$NEXT_SERVER_ENTRY" ]]; then
+  fatal "Expected $NEXT_SERVER_ENTRY to exist after backfilling Next.js runtime files."
+fi
+
 # Ship Prisma schema and migrations to keep database tooling handy in production.
 if [[ -d "$PRISMA_DIR" ]]; then
   mkdir -p "$RELEASE_DIR/packages/db"
