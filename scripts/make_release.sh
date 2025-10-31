@@ -58,6 +58,161 @@ load_env_file() {
   set +a
 }
 
+resolve_workspace_module_dir() {
+  local module_name="$1"
+  local resolved_path
+
+  resolved_path="$(MODULE_NAME="$module_name" pnpm --filter @cursor-usage/web exec node - <<'NODE'
+const path = require('path')
+const moduleName = process.env.MODULE_NAME
+if (!moduleName) {
+  process.exit(2)
+}
+try {
+  const resolved = require.resolve(moduleName + '/package.json')
+  process.stdout.write(path.dirname(resolved))
+} catch (err) {
+  if (err && err.code === 'MODULE_NOT_FOUND') {
+    process.exit(3)
+  }
+  throw err
+}
+NODE
+)"
+
+  case "$?" in
+    0)
+      ;;
+    3)
+      fatal "Unable to resolve workspace module \"$module_name\". Ensure it is installed."
+      ;;
+    *)
+      fatal "Failed to resolve workspace module \"$module_name\" (unexpected error)."
+      ;;
+  esac
+
+  resolved_path="${resolved_path%"${resolved_path##*[![:space:]]}"}"
+
+  if [[ -z "$resolved_path" || ! -d "$resolved_path" ]]; then
+    fatal "Resolved path for module \"$module_name\" is empty or not a directory."
+  fi
+
+  printf '%s' "$resolved_path"
+}
+
+copy_workspace_module() {
+  local module_name="$1"
+  local destination_root="$2"
+  local destination_path="$destination_root/$module_name"
+  local destination_parent
+
+  destination_parent="$(dirname "$destination_path")"
+  mkdir -p "$destination_parent"
+
+  local source_dir
+  source_dir="$(resolve_workspace_module_dir "$module_name")"
+
+  rm -rf "$destination_path"
+  cp -aL "$source_dir" "$destination_path"
+}
+
+detect_missing_node_modules() {
+  local node_modules_dir="$1"
+  TARGET_NODE_MODULES="$node_modules_dir" node <<'NODE'
+const fs = require('fs')
+const path = require('path')
+const { createRequire, builtinModules } = require('module')
+
+const root = process.env.TARGET_NODE_MODULES
+if (!root) {
+  process.exit(1)
+}
+
+const absoluteRoot = path.resolve(root)
+
+const seen = new Set()
+const packages = []
+
+function visitNodeModules(dir) {
+  if (!dir || seen.has(dir)) return
+  seen.add(dir)
+
+  let entries
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return
+    throw err
+  }
+
+  for (const entry of entries) {
+    if (entry.name === '.bin') continue
+    if (!entry.isDirectory()) continue
+
+    const fullPath = path.join(dir, entry.name)
+
+    if (entry.name.startsWith('@')) {
+      visitNodeModules(fullPath)
+      continue
+    }
+
+    const manifestPath = path.join(fullPath, 'package.json')
+    if (!fs.existsSync(manifestPath)) {
+      continue
+    }
+
+    packages.push({ dir: fullPath, manifestPath })
+
+    const nestedNodeModules = path.join(fullPath, 'node_modules')
+    if (fs.existsSync(nestedNodeModules)) {
+      visitNodeModules(nestedNodeModules)
+    }
+  }
+}
+
+visitNodeModules(absoluteRoot)
+
+const builtin = new Set(builtinModules)
+const missing = new Map()
+
+for (const { dir, manifestPath } of packages) {
+  let manifest
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+  } catch {
+    continue
+  }
+
+  const deps = manifest.dependencies ? Object.keys(manifest.dependencies) : []
+  if (deps.length === 0) continue
+
+  const req = createRequire(manifestPath)
+
+  for (const dep of deps) {
+    if (!dep || builtin.has(dep)) continue
+    try {
+      req.resolve(dep + '/package.json')
+    } catch (err) {
+      if (err && err.code === 'MODULE_NOT_FOUND') {
+        if (!missing.has(dep)) {
+          missing.set(dep, new Set())
+        }
+        missing.get(dep).add(dir)
+      }
+    }
+  }
+}
+
+const missingEntries = Array.from(missing.entries()).sort(([a], [b]) => a.localeCompare(b))
+
+for (const [dep, dependents] of missingEntries) {
+  const requiredBy = Array.from(dependents).join(', ')
+  console.error(`Missing module "${dep}" required by: ${requiredBy}`)
+  console.log(dep)
+}
+NODE
+}
+
 ###############################################################################
 # Parse arguments and validate execution context
 ###############################################################################
@@ -261,6 +416,44 @@ SWC_HELPER_ENTRY="$RELEASE_DIR/apps/web/node_modules/@swc/helpers/_/_interop_req
 if [[ ! -f "$SWC_HELPER_ENTRY" ]]; then
   fatal "Expected SWC helper runtime at $SWC_HELPER_ENTRY but it was not found. Standalone build may be incomplete."
 fi
+
+# Identify and backfill any dependencies that Next's standalone tracing missed so
+# the runtime bundle stays self-contained.
+log "Validating runtime node_modules dependencies"
+NODE_MODULES_ROOT="$APP_RELEASE_DIR/node_modules"
+if [[ ! -d "$NODE_MODULES_ROOT" ]]; then
+  fatal "Expected node_modules directory at $NODE_MODULES_ROOT after copying standalone output."
+fi
+
+missing_modules=()
+dependency_iteration=0
+dependency_iteration_limit=5
+
+while true; do
+  missing_modules=()
+  if mapfile -t missing_modules < <(detect_missing_node_modules "$NODE_MODULES_ROOT"); then
+    :
+  else
+    fatal "Failed to inspect node_modules dependencies under $NODE_MODULES_ROOT."
+  fi
+
+  if [[ ${#missing_modules[@]} -eq 0 ]]; then
+    break
+  fi
+
+  ((dependency_iteration++))
+  if ((dependency_iteration > dependency_iteration_limit)); then
+    fatal "Unable to resolve missing modules after ${dependency_iteration_limit} attempts: ${missing_modules[*]}"
+  fi
+
+  log "Backfilling missing modules (${dependency_iteration}/${dependency_iteration_limit}): ${missing_modules[*]}"
+
+  for module_name in "${missing_modules[@]}"; do
+    copy_workspace_module "$module_name" "$NODE_MODULES_ROOT"
+  done
+done
+
+log "node_modules dependency validation passed"
 
 # Ship Prisma schema and migrations to keep database tooling handy in production.
 if [[ -d "$PRISMA_DIR" ]]; then
