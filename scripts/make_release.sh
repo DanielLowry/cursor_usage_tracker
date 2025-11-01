@@ -296,21 +296,22 @@ PRISMA_DIR="packages/db/prisma"
 
 log "Assembling release directory at $RELEASE_DIR"
 
-# Copy the standalone Node runtime that Next.js produced.
-# Use -L to dereference pnpm symlinks so runtime deps are real files in the release.
-cp -aL "$STANDALONE_DIR"/. "$RELEASE_DIR/"
-
+# Define app release root and ensure it's clean
 APP_RELEASE_DIR="$RELEASE_DIR/apps/web"
+rm -rf "$APP_RELEASE_DIR"
+mkdir -p "$APP_RELEASE_DIR"
 
-if [[ ! -d "$APP_RELEASE_DIR" ]]; then
-  fatal "Standalone copy did not produce $APP_RELEASE_DIR"
+# 1) Materialize the web package with a symlink-free node_modules using pnpm deploy
+log "Materializing @cursor-usage/web with pnpm deploy (prod deps only)"
+pnpm --filter @cursor-usage/web deploy --prod "$APP_RELEASE_DIR"
+
+# 2) Copy the server entry produced by Next standalone build
+if [[ ! -f "$STANDALONE_DIR/apps/web/server.js" ]]; then
+  fatal "Expected Next server entry at $STANDALONE_DIR/apps/web/server.js"
 fi
+cp -a "$STANDALONE_DIR/apps/web/server.js" "$APP_RELEASE_DIR/server.js"
 
-# Ensure node_modules root path is set before any pre-copy steps
-NODE_MODULES_ROOT="$APP_RELEASE_DIR/node_modules"
-mkdir -p "$NODE_MODULES_ROOT"
-
-# Include Next.js static assets in the location expected by the standalone server.
+# 3) Copy non-code runtime assets expected at runtime
 mkdir -p "$APP_RELEASE_DIR/.next"
 rm -rf "$APP_RELEASE_DIR/.next/static"
 cp -a "$STATIC_DIR" "$APP_RELEASE_DIR/.next/"
@@ -320,252 +321,64 @@ if [[ -d "$PUBLIC_DIR" ]]; then
   cp -a "$PUBLIC_DIR"/. "$APP_RELEASE_DIR/public/"
 fi
 
-# Pre-copy traced runtime packages referenced by Next.js server traces
-TRACE_ROOT="apps/web/.next/server"
-if [[ -d "$TRACE_ROOT" ]]; then
-  log "Pre-copying traced runtime packages from $TRACE_ROOT"
-  node "$REPO_ROOT/scripts/utils/trace_copy.js" "$TRACE_ROOT" "$APP_RELEASE_DIR/node_modules" --verbose || true
+# Optional: include Prisma schema/migrations for operational tooling
+if [[ -d "$PRISMA_DIR" ]]; then
+  mkdir -p "$APP_RELEASE_DIR/prisma"
+  cp -a "$PRISMA_DIR"/. "$APP_RELEASE_DIR/prisma/"
 fi
 
-# Proactively copy direct runtime deps of key packages under pnpm
-log "Pre-copying Next.js and React runtime dependencies"
-# Ensure NODE_MODULES_ROOT remains defined under set -u
-NODE_MODULES_ROOT=${NODE_MODULES_ROOT:-"$APP_RELEASE_DIR/node_modules"}
-mkdir -p "$NODE_MODULES_ROOT"
-
-# Copy Next's declared deps resolving from 'next'
-if mapfile -t _next_deps < <(pnpm --filter @cursor-usage/web exec node -e 'const pkg=require("next/package.json");console.log(Object.keys(pkg.dependencies||{}).join("\n"))' 2>/dev/null); then
-  for dep in "${_next_deps[@]}"; do
-    [[ -z "$dep" ]] && continue
-    if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
-      copy_dep_from_base "next" "$dep" "$NODE_MODULES_ROOT" || true
-    fi
-  done
-fi
-
-# Copy React and React DOM declared deps resolving from their own bases
-if mapfile -t _react_deps < <(pnpm --filter @cursor-usage/web exec node -e 'const pkg=require("react/package.json");console.log(Object.keys(pkg.dependencies||{}).join("\n"))' 2>/dev/null); then
-  for dep in "${_react_deps[@]}"; do
-    [[ -z "$dep" ]] && continue
-    if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
-      copy_dep_from_base "react" "$dep" "$NODE_MODULES_ROOT" || true
-    fi
-  done
-fi
-if mapfile -t _react_dom_deps < <(pnpm --filter @cursor-usage/web exec node -e 'const pkg=require("react-dom/package.json");console.log(Object.keys(pkg.dependencies||{}).join("\n"))' 2>/dev/null); then
-  for dep in "${_react_dom_deps[@]}"; do
-    [[ -z "$dep" ]] && continue
-    if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
-      copy_dep_from_base "react-dom" "$dep" "$NODE_MODULES_ROOT" || true
-    fi
-  done
-fi
-
-# Sanity checks to ensure the standalone runtime has required modules
-if [[ ! -f "$RELEASE_DIR/apps/web/server.js" ]]; then
-  fatal "Standalone server entry not found at $RELEASE_DIR/apps/web/server.js"
-fi
-
-if [[ ! -d "$RELEASE_DIR/apps/web/node_modules/next" ]]; then
-  fatal "Next runtime not found at $RELEASE_DIR/apps/web/node_modules/next. The standalone bundle may be missing node_modules."
-fi
-
-# Work around a Next.js standalone tracing gap where key server runtime files
-# are sometimes omitted from the copied node_modules tree. If the primary
-# start-server entry is absent, backfill the package contents from the
-# workspace installation to keep the release self-contained.
-NEXT_SERVER_ENTRY="$RELEASE_DIR/apps/web/node_modules/next/dist/server/lib/start-server.js"
-if [[ ! -f "$NEXT_SERVER_ENTRY" ]]; then
-  log "Next.js runtime is missing start-server.js; backfilling package contents"
-  NEXT_PACKAGE_DIR="$(pnpm --filter @cursor-usage/web exec node -e 'console.log(require("path").dirname(require.resolve("next/package.json")))')"
-  if [[ -z "$NEXT_PACKAGE_DIR" || ! -d "$NEXT_PACKAGE_DIR" ]]; then
-    fatal "Unable to resolve the Next.js package directory from the workspace."
-  fi
-  NEXT_PACKAGE_PARENT="$(dirname "$NEXT_PACKAGE_DIR")"
-  if [[ -z "$NEXT_PACKAGE_PARENT" || ! -d "$NEXT_PACKAGE_PARENT" ]]; then
-    fatal "Unable to determine Next.js parent node_modules directory."
-  fi
-
-  # Refresh the Next.js package contents.
-  rm -rf "$RELEASE_DIR/apps/web/node_modules/next"
-  mkdir -p "$RELEASE_DIR/apps/web/node_modules/next"
-  cp -aL "$NEXT_PACKAGE_DIR/." "$RELEASE_DIR/apps/web/node_modules/next/"
-
-  # Backfill the package's sibling dependencies (e.g. @swc, @next, postcss).
-  for dependency_path in "$NEXT_PACKAGE_PARENT"/*; do
-    dependency_name="$(basename "$dependency_path")"
-    [[ "$dependency_name" == "next" ]] && continue
-    if [[ -e "$dependency_path" ]]; then
-      rm -rf "$RELEASE_DIR/apps/web/node_modules/$dependency_name"
-      cp -aL "$dependency_path" "$RELEASE_DIR/apps/web/node_modules/$dependency_name"
-    fi
-  done
-fi
-
-if [[ ! -f "$NEXT_SERVER_ENTRY" ]]; then
-  fatal "Expected $NEXT_SERVER_ENTRY to exist after backfilling Next.js runtime files."
-fi
-
-SWC_HELPER_CJS="$APP_RELEASE_DIR/node_modules/@swc/helpers/lib/_interop_require_default.js"
-SWC_HELPER_ESM="$APP_RELEASE_DIR/node_modules/@swc/helpers/esm/_interop_require_default.js"
-if [[ ! -f "$SWC_HELPER_CJS" && ! -f "$SWC_HELPER_ESM" ]]; then
-  fatal "Expected SWC helper runtime at either $SWC_HELPER_CJS or $SWC_HELPER_ESM but neither was found. Standalone build may be incomplete."
-fi
-
-# Identify and backfill any dependencies that Next's standalone tracing missed so
-# the runtime bundle stays self-contained.
+# 4) Validate that deployed node_modules appear complete (should be a no-op now)
 log "Validating runtime node_modules dependencies"
 NODE_MODULES_ROOT="$APP_RELEASE_DIR/node_modules"
 if [[ ! -d "$NODE_MODULES_ROOT" ]]; then
-  fatal "Expected node_modules directory at $NODE_MODULES_ROOT after copying standalone output."
+  fatal "Expected node_modules directory at $NODE_MODULES_ROOT after pnpm deploy."
 fi
-
-missing_modules=()
-dependency_iteration=0
-dependency_iteration_limit=5
-
-while true; do
-  missing_modules=()
-  missing_with_bases=()
-  if mapfile -t missing_modules < <(detect_missing_node_modules "$NODE_MODULES_ROOT"); then
-    :
-  else
-    fatal "Failed to inspect node_modules dependencies under $NODE_MODULES_ROOT."
-  fi
-
-  # Also capture bases for smarter resolution
-  if mapfile -t missing_with_bases < <(node "$NODE_MODULES_HELPER" detect-missing "$NODE_MODULES_ROOT" --with-bases); then
-    :
-  fi
-
-  if [[ ${#missing_modules[@]} -eq 0 ]]; then
-    log "Dependency check found no missing modules"
-    break
-  fi
-
-  # Note: ((x++)) returns status 1 when x was 0, which trips `set -e`.
-  # Use += 1 so the arithmetic evaluation returns non-zero (success) and avoids ERR trap.
-  ((dependency_iteration+=1))
-  if ((dependency_iteration > dependency_iteration_limit)); then
+if mapfile -t _missing < <(detect_missing_node_modules "$NODE_MODULES_ROOT"); then
+  if [[ ${#_missing[@]} -gt 0 ]]; then
     printf '\n' >&2
-    printf '[make_release] ERROR: Unable to resolve missing modules after %s attempts.\n' "$dependency_iteration_limit" >&2
-    printf '[make_release] Still missing (module -> base):\n' >&2
-    for line in "${missing_with_bases[@]:-}"; do
-      printf '  - %s\n' "$line" >&2
-    done
-    fatal "Dependency validation did not converge"
+    printf '[make_release] ERROR: Missing modules after pnpm deploy:\n' >&2
+    for m in "${_missing[@]}"; do printf '  - %s\n' "$m" >&2; done
+    fatal "Dependency validation failed"
   fi
-
-  log "Backfilling missing modules (${dependency_iteration}/${dependency_iteration_limit}): ${missing_modules[*]}"
-
-  # Build a map module->basePkg from the with-bases output lines: "mod<TAB>base"
-  declare -A module_base_map=()
-  for line in "${missing_with_bases[@]:-}"; do
-    mod="${line%%$'\t'*}"
-    base="${line#*$'\t'}"
-    if [[ -n "$mod" && -n "$base" && "$mod" != "$line" ]]; then
-      module_base_map["$mod"]="$base"
-    fi
-  done
-
-  for module_name in "${missing_modules[@]}"; do
-    base_pkg="${module_base_map[$module_name]:-}"
-    resolved_dir=""
-
-    if [[ -n "$base_pkg" ]]; then
-      # Try resolving relative to the requiring package
-      if out=$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve-from "$base_pkg" "$module_name" 2>/dev/null); then
-        resolved_dir="$out"
-      elif out=$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$module_name" 2>/dev/null); then
-        resolved_dir="$out"
-      else
-        resolved_dir=""
-      fi
-    else
-      if out=$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$module_name" 2>/dev/null); then
-        resolved_dir="$out"
-      else
-        resolved_dir=""
-      fi
-    fi
-
-    # Trim whitespace/newlines just in case
-    resolved_dir="${resolved_dir//$'\r'/}"
-    resolved_dir="${resolved_dir//$'\n'/}"
-
-    log "Resolving module '$module_name' (base='${base_pkg:--}') -> '${resolved_dir:-<unresolved>}'"
-
-    if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
-      # Fallback: try to locate the module directly under the base package's parent node_modules
-      if [[ -n "$base_pkg" ]]; then
-        if base_dir_out=$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$base_pkg" 2>/dev/null); then
-          base_dir_out="${base_dir_out//$'\r'/}"
-          base_dir_out="${base_dir_out//$'\n'/}"
-          base_nm_dir="$(dirname "$base_dir_out")"
-          candidate_path="$base_nm_dir/$module_name"
-          if [[ -d "$candidate_path" ]]; then
-            resolved_dir="$candidate_path"
-            log "Fallback located '$module_name' under base node_modules: '$resolved_dir'"
-          fi
-        fi
-      fi
-    fi
-
-    if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
-      # Fallback 2: locate via Next's parent node_modules
-      next_pkg_dir="$(pnpm --filter @cursor-usage/web exec node -e 'const p=require("path");try{console.log(p.dirname(require.resolve("next/package.json")))}catch(e){process.exit(0)}' 2>/dev/null || true)"
-      next_pkg_dir="${next_pkg_dir//$'\r'/}"
-      next_pkg_dir="${next_pkg_dir//$'\n'/}"
-      if [[ -n "$next_pkg_dir" && -d "$next_pkg_dir" ]]; then
-        next_parent="$(dirname "$next_pkg_dir")"
-        candidate_path2="$next_parent/$module_name"
-        if [[ -d "$candidate_path2" ]]; then
-          resolved_dir="$candidate_path2"
-          log "Fallback via next parent located '$module_name': '$resolved_dir'"
-        fi
-      fi
-    fi
-
-    if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
-      fatal "Failed to resolve path for missing module: $module_name (base=$base_pkg)"
-    fi
-
-    dest_path="$NODE_MODULES_ROOT/$module_name"
-    mkdir -p "$(dirname "$dest_path")"
-    rm -rf "$dest_path"
-    if ! cp -aL "$resolved_dir" "$dest_path"; then
-      fatal "Copy failed for module: $module_name from '$resolved_dir' to '$dest_path'"
-    fi
-  done
-done
-
-log "node_modules dependency validation passed"
-
-# Ship Prisma schema and migrations to keep database tooling handy in production.
-if [[ -d "$PRISMA_DIR" ]]; then
-  mkdir -p "$RELEASE_DIR/packages/db"
-  cp -a "$PRISMA_DIR" "$RELEASE_DIR/packages/db/"
 fi
+
+# 6) Smoke tests to catch common runtime issues without starting the server
+log "Running smoke tests (module resolution)"
+(
+  cd "$APP_RELEASE_DIR"
+  # Ensure the server entry can be resolved (path exists), but do not execute it
+  node -e "require.resolve('./server.js'); console.log('server entry resolvable')" \
+    || fatal "Smoke test failed: server.js not resolvable"
+  # Ensure Next is present and resolvable from the deployed app
+  node -e "console.log(require.resolve('next/package.json'))" \
+    || fatal "Smoke test failed: next package not resolvable"
+  # Ensure the start-server module is loadable (import tree intact)
+  node -e "require('next/dist/server/lib/start-server'); console.log('next start-server import OK')" \
+    || fatal "Smoke test failed: next start-server module not importable"
+)
+
+# 5) Provide root package.json so "pnpm web:pdn:lan" works in the release
+cp -a "$REPO_ROOT/package.json" "$RELEASE_DIR/package.json"
 
 # Provide a quick-start readme in the release artifact.
 cat <<'EOF' > "$RELEASE_DIR/README-release.md"
-# Cursor Usage Tracker - Standalone Release
+# Cursor Usage Tracker - Release Bundle
 
-This directory contains the standalone Next.js bundle produced by `next build` with `output: 'standalone'`.
+This directory contains a production-ready bundle of the web app.
 
-To run the server:
+Start the server:
 
-```bash
-# 1) Ensure you have Node.js 20+ installed on the target host
-# 2) Create a .env.production.local file alongside this README with production secrets
-# 3) Start the server (override PORT as needed)
-PORT=4000 node apps/web/server.js
-```
+- With env file (Node 20.6+):
+  pnpm web:pdn:lan
+
+- Or without env file:
+  HOSTNAME=0.0.0.0 PORT=4000 NODE_ENV=production node apps/web/server.js
 
 Notes:
-- The `node_modules` required by the standalone build are already included under this folder.
-- If you repackage this folder, prefer a zip created by the release script to preserve structure.
-- You can adjust `PORT` and any other environment variables before starting the server.
+- Requires Node.js 20+ and pnpm installed on the host.
+- Place `.env.production.local` at the bundle root if using the pnpm script.
+- `apps/web` contains the fully materialized app with a symlink-free `node_modules`.
+- Do not commit or ship any `.env.*` files to public repos.
 EOF
 
 ###############################################################################
@@ -608,6 +421,6 @@ log "Release directory: $RELEASE_DIR"
 if [[ "$SKIP_ZIP" == false ]]; then
   log "Release archive:   $RELEASE_ZIP"
 fi
-log "To start the server: PORT=4000 node apps/web/server.js"
+log "To start: cd $RELEASE_DIR && pnpm web:pdn:lan"
 
 log "Done."
