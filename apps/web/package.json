@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.0.0",
+    "@cursor-usage/config": "workspace:*",
     "@types/archiver": "^5.3.0",
     "@types/node": "20.5.7",
     "@types/react": "18.2.21",

@@ -30,7 +30,11 @@ export default async function DashboardPage() {
         lastUsageEventSeenAt: (data.lastUsageEventSeenAt as string | null | undefined) ?? null,
       };
     }
-  } catch {}
+  } catch (err) {
+    // Ignore fetch errors during static build or when API is unavailable.
+    // Leaving a comment satisfies ESLint's `no-empty` rule.
+    void err;
+  }
 
   const lastIngestionDisplay = summary.lastIngestionAt
     ? new Date(summary.lastIngestionAt).toLocaleString()

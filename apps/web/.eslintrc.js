@@ -1,6 +1,6 @@
 module.exports = {
   root: true,
-  extends: [require.resolve("@cursor-usage/config/nextjs")],
+  extends: [require.resolve('@cursor-usage/config/library')],
   parserOptions: {
     project: "./tsconfig.json",
   },

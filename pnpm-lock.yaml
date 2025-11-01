@@ -60,6 +60,9 @@ importers:
         specifier: ^3.22.4
         version: 3.25.76
     devDependencies:
+      '@cursor-usage/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@testing-library/jest-dom':
         specifier: ^6.0.0
         version: 6.9.0
