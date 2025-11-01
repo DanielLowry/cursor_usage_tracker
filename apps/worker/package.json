@@ -19,6 +19,7 @@
   "dependencies": {
     "@cursor-usage/redis": "workspace:*",
     "@cursor-usage/ingest": "workspace:*",
+    "@cursor-usage/hash": "workspace:*",
     "bullmq": "^5.1.0",
     "csv-parse": "^5.6.0",
     "zod": "^3.22.4"

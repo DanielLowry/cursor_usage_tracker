@@ -111,6 +111,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@cursor-usage/hash':
+        specifier: workspace:*
+        version: link:../../packages/shared/hash
       '@cursor-usage/ingest':
         specifier: workspace:*
         version: link:../../packages/shared/ingest
