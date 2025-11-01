@@ -4,7 +4,7 @@
 # The script orchestrates package builds, the Next.js standalone build, assembles runtime assets,
 # and produces a versioned zip file that can be deployed directly.
 
-set -euo pipefail
+set -Eeuo pipefail
 
 ###############################################################################
 # Helper functions
@@ -40,6 +40,9 @@ fatal() {
   printf '[make_release] ERROR: %s\n' "$*" >&2
   exit 1
 }
+
+# Make unexpected command failures visible with location + last command
+trap 'fatal "Command failed (exit=$?) at ${BASH_SOURCE[0]}:${LINENO}: $BASH_COMMAND"' ERR
 
 ensure_command() {
   local cmd="$1"
@@ -259,6 +262,13 @@ if [[ -d "$PUBLIC_DIR" ]]; then
   cp -a "$PUBLIC_DIR"/. "$APP_RELEASE_DIR/public/"
 fi
 
+# Pre-copy traced runtime packages referenced by Next.js server traces
+TRACE_ROOT="apps/web/.next/server"
+if [[ -d "$TRACE_ROOT" ]]; then
+  log "Pre-copying traced runtime packages from $TRACE_ROOT"
+  node "$REPO_ROOT/scripts/utils/trace_copy.js" "$TRACE_ROOT" "$APP_RELEASE_DIR/node_modules" --verbose || true
+fi
+
 # Sanity checks to ensure the standalone runtime has required modules
 if [[ ! -f "$RELEASE_DIR/apps/web/server.js" ]]; then
   fatal "Standalone server entry not found at $RELEASE_DIR/apps/web/server.js"
@@ -342,7 +352,9 @@ while true; do
   log "Backfilling missing modules (${dependency_iteration}/${dependency_iteration_limit}): ${missing_modules[*]}"
 
   for module_name in "${missing_modules[@]}"; do
-    copy_workspace_module "$module_name" "$NODE_MODULES_ROOT"
+    if ! copy_workspace_module "$module_name" "$NODE_MODULES_ROOT"; then
+      fatal "Failed to backfill module: $module_name"
+    fi
   done
 done
 
