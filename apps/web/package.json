@@ -11,7 +11,6 @@
     "package-extension": "node scripts/generate-icons.js && node scripts/package-extension.js"
   },
   "dependencies": {
-    "@noble/ciphers": "^0.4.1",
     "archiver": "^5.3.1",
     "csv-parse": "^5.6.0",
     "next": "13.4.19",

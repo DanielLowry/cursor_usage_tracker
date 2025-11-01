@@ -12,7 +12,6 @@
     "test": "vitest run --passWithNoTests"
   },
   "devDependencies": {
-    "@cursor-usage/config": "workspace:*",
     "typescript": "^5.3.0",
     "tsup": "^8.0.2",
     "eslint": "^8.56.0"

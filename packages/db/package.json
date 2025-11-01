@@ -27,7 +27,6 @@
   },
   "devDependencies": {
     "@cursor-usage/config": "workspace:*",
-    "@cursor-usage/types": "workspace:*",
     "eslint": "^8.56.0",
     "prisma": "^5.8.0",
     "rimraf": "^5.0.5",
