@@ -252,6 +252,10 @@ if [[ ! -d "$APP_RELEASE_DIR" ]]; then
   fatal "Standalone copy did not produce $APP_RELEASE_DIR"
 fi
 
+# Ensure node_modules root path is set before any pre-copy steps
+NODE_MODULES_ROOT="$APP_RELEASE_DIR/node_modules"
+mkdir -p "$NODE_MODULES_ROOT"
+
 # Include Next.js static assets in the location expected by the standalone server.
 mkdir -p "$APP_RELEASE_DIR/.next"
 rm -rf "$APP_RELEASE_DIR/.next/static"
@@ -267,6 +271,39 @@ TRACE_ROOT="apps/web/.next/server"
 if [[ -d "$TRACE_ROOT" ]]; then
   log "Pre-copying traced runtime packages from $TRACE_ROOT"
   node "$REPO_ROOT/scripts/utils/trace_copy.js" "$TRACE_ROOT" "$APP_RELEASE_DIR/node_modules" --verbose || true
+fi
+
+# Proactively copy direct runtime deps of key packages under pnpm
+log "Pre-copying Next.js and React runtime dependencies"
+NEXT_PACKAGE_DIR="$(pnpm --filter @cursor-usage/web exec node -e 'const p=require("path");console.log(p.dirname(require.resolve("next/package.json")))' 2>/dev/null || true)"
+if [[ -n "$NEXT_PACKAGE_DIR" && -d "$NEXT_PACKAGE_DIR" ]]; then
+  # Copy declared deps of next
+  if mapfile -t _next_deps < <(pnpm --filter @cursor-usage/web exec node -e 'const pkg=require("next/package.json");console.log(Object.keys(pkg.dependencies||{}).join("\n"))' 2>/dev/null); then
+    for dep in "${_next_deps[@]}"; do
+      [[ -z "$dep" ]] && continue
+      if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
+        copy_workspace_module "$dep" "$NODE_MODULES_ROOT" || true
+      fi
+    done
+  fi
+fi
+
+# Copy declared deps of react and react-dom to ensure scheduler/loose-envify are present
+if mapfile -t _react_deps < <(pnpm --filter @cursor-usage/web exec node -e 'const pkg=require("react/package.json");console.log(Object.keys(pkg.dependencies||{}).join("\n"))' 2>/dev/null); then
+  for dep in "${_react_deps[@]}"; do
+    [[ -z "$dep" ]] && continue
+    if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
+      copy_workspace_module "$dep" "$NODE_MODULES_ROOT" || true
+    fi
+  done
+fi
+if mapfile -t _react_dom_deps < <(pnpm --filter @cursor-usage/web exec node -e 'const pkg=require("react-dom/package.json");console.log(Object.keys(pkg.dependencies||{}).join("\n"))' 2>/dev/null); then
+  for dep in "${_react_dom_deps[@]}"; do
+    [[ -z "$dep" ]] && continue
+    if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
+      copy_workspace_module "$dep" "$NODE_MODULES_ROOT" || true
+    fi
+  done
 fi
 
 # Sanity checks to ensure the standalone runtime has required modules
@@ -334,26 +371,100 @@ dependency_iteration_limit=5
 
 while true; do
   missing_modules=()
+  missing_with_bases=()
   if mapfile -t missing_modules < <(detect_missing_node_modules "$NODE_MODULES_ROOT"); then
     :
   else
     fatal "Failed to inspect node_modules dependencies under $NODE_MODULES_ROOT."
   fi
 
+  # Also capture bases for smarter resolution
+  if mapfile -t missing_with_bases < <(node "$NODE_MODULES_HELPER" detect-missing "$NODE_MODULES_ROOT" --with-bases); then
+    :
+  fi
+
   if [[ ${#missing_modules[@]} -eq 0 ]]; then
+    log "Dependency check found no missing modules"
     break
   fi
 
-  ((dependency_iteration++))
+  # Note: ((x++)) returns status 1 when x was 0, which trips `set -e`.
+  # Use += 1 so the arithmetic evaluation returns non-zero (success) and avoids ERR trap.
+  ((dependency_iteration+=1))
   if ((dependency_iteration > dependency_iteration_limit)); then
-    fatal "Unable to resolve missing modules after ${dependency_iteration_limit} attempts: ${missing_modules[*]}"
+    printf '\n' >&2
+    printf '[make_release] ERROR: Unable to resolve missing modules after %s attempts.\n' "$dependency_iteration_limit" >&2
+    printf '[make_release] Still missing (module -> base):\n' >&2
+    for line in "${missing_with_bases[@]:-}"; do
+      printf '  - %s\n' "$line" >&2
+    done
+    fatal "Dependency validation did not converge"
   fi
 
   log "Backfilling missing modules (${dependency_iteration}/${dependency_iteration_limit}): ${missing_modules[*]}"
 
+  # Build a map module->basePkg from the with-bases output lines: "mod<TAB>base"
+  declare -A module_base_map=()
+  for line in "${missing_with_bases[@]:-}"; do
+    mod="${line%%$'\t'*}"
+    base="${line#*$'\t'}"
+    if [[ -n "$mod" && -n "$base" && "$mod" != "$line" ]]; then
+      module_base_map["$mod"]="$base"
+    fi
+  done
+
   for module_name in "${missing_modules[@]}"; do
-    if ! copy_workspace_module "$module_name" "$NODE_MODULES_ROOT"; then
-      fatal "Failed to backfill module: $module_name"
+    base_pkg="${module_base_map[$module_name]:-}"
+    resolved_dir=""
+
+    if [[ -n "$base_pkg" ]]; then
+      # Try resolving relative to the requiring package
+      if out=$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve-from "$base_pkg" "$module_name" 2>/dev/null); then
+        resolved_dir="$out"
+      elif out=$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$module_name" 2>/dev/null); then
+        resolved_dir="$out"
+      else
+        resolved_dir=""
+      fi
+    else
+      if out=$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$module_name" 2>/dev/null); then
+        resolved_dir="$out"
+      else
+        resolved_dir=""
+      fi
+    fi
+
+    # Trim whitespace/newlines just in case
+    resolved_dir="${resolved_dir//$'\r'/}"
+    resolved_dir="${resolved_dir//$'\n'/}"
+
+    log "Resolving module '$module_name' (base='${base_pkg:--}') -> '${resolved_dir:-<unresolved>}'"
+
+    if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
+      # Fallback: try to locate the module directly under the base package's parent node_modules
+      if [[ -n "$base_pkg" ]]; then
+        if base_dir_out=$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$base_pkg" 2>/dev/null); then
+          base_dir_out="${base_dir_out//$'\r'/}"
+          base_dir_out="${base_dir_out//$'\n'/}"
+          base_nm_dir="$(dirname "$base_dir_out")"
+          candidate_path="$base_nm_dir/$module_name"
+          if [[ -d "$candidate_path" ]]; then
+            resolved_dir="$candidate_path"
+            log "Fallback located '$module_name' under base node_modules: '$resolved_dir'"
+          fi
+        fi
+      fi
+    fi
+
+    if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
+      fatal "Failed to resolve path for missing module: $module_name (base=$base_pkg)"
+    fi
+
+    dest_path="$NODE_MODULES_ROOT/$module_name"
+    mkdir -p "$(dirname "$dest_path")"
+    rm -rf "$dest_path"
+    if ! cp -aL "$resolved_dir" "$dest_path"; then
+      fatal "Copy failed for module: $module_name from '$resolved_dir' to '$dest_path'"
     fi
   done
 done
