@@ -65,20 +65,15 @@ resolve_workspace_module_dir() {
   local module_name="$1"
   local resolved_path=""
 
-  if ! resolved_path="$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$module_name")"; then
-    local exit_status=$?
-    if (( exit_status == 3 )); then
-      fatal "Unable to resolve workspace module \"$module_name\". Ensure it is installed."
-    fi
-    fatal "Failed to resolve workspace module \"$module_name\" (exit status $exit_status)."
-  fi
+  # Capture stdout without relying on assignment exit code
+  resolved_path="$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$module_name" 2>/dev/null || true)"
 
   # Trim trailing newline characters if any.
   resolved_path="${resolved_path//$'\r'/}"
   resolved_path="${resolved_path//$'\n'/}"
 
   if [[ -z "$resolved_path" || ! -d "$resolved_path" ]]; then
-    fatal "Resolved path for module \"$module_name\" is empty or not a directory."
+    fatal "Module \"$module_name\" could not be resolved from workspace."
   fi
 
   printf '%s' "$resolved_path"
@@ -98,6 +93,49 @@ copy_workspace_module() {
 
   rm -rf "$destination_path"
   cp -aL "$source_dir" "$destination_path"
+}
+
+# Resolve and copy a dependency relative to a base package (works with pnpm nested deps)
+copy_dep_from_base() {
+  local base_pkg="$1"
+  local dep_name="$2"
+  local destination_root="$3"
+
+  local dest_path="$destination_root/$dep_name"
+  local resolved_dir=""
+
+  # Try resolving from the base package context first
+  if resolved_dir="$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve-from "$base_pkg" "$dep_name" 2>/dev/null || true)"; then
+    :
+  fi
+
+  # Trim newlines
+  resolved_dir="${resolved_dir//$'\r'/}"
+  resolved_dir="${resolved_dir//$'\n'/}"
+
+  # Fallback: resolve base dir then look for sibling under its node_modules
+  if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
+    local base_dir_out="$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$base_pkg" 2>/dev/null || true)"
+    base_dir_out="${base_dir_out//$'\r'/}"
+    base_dir_out="${base_dir_out//$'\n'/}"
+    if [[ -n "$base_dir_out" && -d "$base_dir_out" ]]; then
+      local base_nm_dir
+      base_nm_dir="$(dirname "$base_dir_out")"
+      local candidate_path="$base_nm_dir/$dep_name"
+      if [[ -d "$candidate_path" ]]; then
+        resolved_dir="$candidate_path"
+      fi
+    fi
+  fi
+
+  if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
+    log "warn: copy_dep_from_base: unable to resolve '$dep_name' from base '$base_pkg'"
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$dest_path")"
+  rm -rf "$dest_path"
+  cp -aL "$resolved_dir" "$dest_path"
 }
 
 detect_missing_node_modules() {
@@ -275,25 +313,26 @@ fi
 
 # Proactively copy direct runtime deps of key packages under pnpm
 log "Pre-copying Next.js and React runtime dependencies"
-NEXT_PACKAGE_DIR="$(pnpm --filter @cursor-usage/web exec node -e 'const p=require("path");console.log(p.dirname(require.resolve("next/package.json")))' 2>/dev/null || true)"
-if [[ -n "$NEXT_PACKAGE_DIR" && -d "$NEXT_PACKAGE_DIR" ]]; then
-  # Copy declared deps of next
-  if mapfile -t _next_deps < <(pnpm --filter @cursor-usage/web exec node -e 'const pkg=require("next/package.json");console.log(Object.keys(pkg.dependencies||{}).join("\n"))' 2>/dev/null); then
-    for dep in "${_next_deps[@]}"; do
-      [[ -z "$dep" ]] && continue
-      if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
-        copy_workspace_module "$dep" "$NODE_MODULES_ROOT" || true
-      fi
-    done
-  fi
+# Ensure NODE_MODULES_ROOT remains defined under set -u
+NODE_MODULES_ROOT=${NODE_MODULES_ROOT:-"$APP_RELEASE_DIR/node_modules"}
+mkdir -p "$NODE_MODULES_ROOT"
+
+# Copy Next's declared deps resolving from 'next'
+if mapfile -t _next_deps < <(pnpm --filter @cursor-usage/web exec node -e 'const pkg=require("next/package.json");console.log(Object.keys(pkg.dependencies||{}).join("\n"))' 2>/dev/null); then
+  for dep in "${_next_deps[@]}"; do
+    [[ -z "$dep" ]] && continue
+    if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
+      copy_dep_from_base "next" "$dep" "$NODE_MODULES_ROOT" || true
+    fi
+  done
 fi
 
-# Copy declared deps of react and react-dom to ensure scheduler/loose-envify are present
+# Copy React and React DOM declared deps resolving from their own bases
 if mapfile -t _react_deps < <(pnpm --filter @cursor-usage/web exec node -e 'const pkg=require("react/package.json");console.log(Object.keys(pkg.dependencies||{}).join("\n"))' 2>/dev/null); then
   for dep in "${_react_deps[@]}"; do
     [[ -z "$dep" ]] && continue
     if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
-      copy_workspace_module "$dep" "$NODE_MODULES_ROOT" || true
+      copy_dep_from_base "react" "$dep" "$NODE_MODULES_ROOT" || true
     fi
   done
 fi
@@ -301,7 +340,7 @@ if mapfile -t _react_dom_deps < <(pnpm --filter @cursor-usage/web exec node -e '
   for dep in "${_react_dom_deps[@]}"; do
     [[ -z "$dep" ]] && continue
     if [[ ! -e "$NODE_MODULES_ROOT/$dep" ]]; then
-      copy_workspace_module "$dep" "$NODE_MODULES_ROOT" || true
+      copy_dep_from_base "react-dom" "$dep" "$NODE_MODULES_ROOT" || true
     fi
   done
 fi
