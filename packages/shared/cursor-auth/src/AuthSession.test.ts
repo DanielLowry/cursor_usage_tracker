@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as pathModule from 'path';
 import * as os from 'os';
-import { RawCookie, deriveRawCookiesFromSessionData, buildCookieHeader, AuthSession, CursorAuthState } from './AuthSession';
+import { RawCookie, deriveRawCookiesFromSessionData, buildCookieHeader, AuthSession, CursorAuthState, validateRawCookies } from './AuthSession';
 
 describe('AuthSession - Cookie Filtering & Header Construction', () => {
 
@@ -216,5 +216,43 @@ describe('AuthSession - File I/O (no network)', () => {
     const finalState = await authSession.load();
     expect(finalState?.isAuthenticated).toBe(true);
     expect(finalState?.sessionCookies?.[0].name).toBe('new_cookie');
+  });
+});
+
+describe('validateRawCookies - early guards', () => {
+  test('returns unauthenticated and avoids network when cookies array is empty', async () => {
+    const originalFetch = (globalThis as any).fetch;
+    const mockFetch = vi.fn().mockRejectedValue(new Error('should not be called'));
+    (globalThis as any).fetch = mockFetch;
+
+    try {
+      const result = await validateRawCookies([]);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe('no_cookies');
+      expect(mockFetch).not.toHaveBeenCalled();
+    } finally {
+      (globalThis as any).fetch = originalFetch;
+    }
+  });
+
+  test('returns unauthenticated and avoids network when no cookie header can be built', async () => {
+    const originalFetch = (globalThis as any).fetch;
+    const mockFetch = vi.fn().mockRejectedValue(new Error('should not be called'));
+    (globalThis as any).fetch = mockFetch;
+
+    // Cookies entries lacking valid names produce an empty header
+    const invalidCookies: RawCookie[] = [
+      { name: '' as any, value: 'x' },
+      { name: '' as any, value: 'y' },
+    ] as any;
+
+    try {
+      const result = await validateRawCookies(invalidCookies);
+      expect(result.ok).toBe(false);
+      expect(result.reason).toBe('no_cookie_header');
+      expect(mockFetch).not.toHaveBeenCalled();
+    } finally {
+      (globalThis as any).fetch = originalFetch;
+    }
   });
 });

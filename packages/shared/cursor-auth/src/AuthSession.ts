@@ -110,10 +110,21 @@ export function buildCookieHeader(cookies: RawCookie[] | undefined): string | nu
 export async function validateRawCookies(cookies: RawCookie[]) {
   console.log('cursor-auth: validateRawCookies starting with', cookies.length, 'cookies');
 
+  // If no cookies are present, we can decisively say unauthenticated
+  // without making a network request. This prevents false positives
+  // caused by unexpected 200 responses from intermediary proxies.
+  if (!cookies || cookies.length === 0) {
+    return { ok: false, status: 0, reason: 'no_cookies', keys: [], contentType: '' };
+  }
+
   try {
     const cookieHeader = buildCookieHeader(cookies);
     const headers: Record<string, string> = { Accept: '*/*' };
     if (cookieHeader) headers['Cookie'] = cookieHeader;
+    else {
+      // No cookie header means we definitely don't have auth; avoid network call.
+      return { ok: false, status: 0, reason: 'no_cookie_header', keys: [], contentType: '' };
+    }
 
     // Standardize target host decision: Use either https://cursor.com or https://www.cursor.com everywhere
     const targetUrl = 'https://cursor.com/api/usage-summary';
@@ -169,27 +180,25 @@ export class AuthSession {
   }
 
   async load(): Promise<CursorAuthState | null> {
-    const enableDebug = process.env.DEBUG_AUTH === '1';
     try {
       const resolvedDir = pathModule.resolve(pathModule.dirname(this.statePath));
       const fullPath = this.statePath;
-      if (enableDebug) {
-        console.log('cursor-auth: loadState resolvedDir=', resolvedDir);
-        console.log('cursor-auth: loadState fullPath=', fullPath);
-      }
+
+      console.log('cursor-auth: loadState resolvedDir=', resolvedDir);
+      console.log('cursor-auth: loadState fullPath=', fullPath);
 
       if (!fs.existsSync(fullPath)) {
-        if (enableDebug) console.log('cursor-auth: loadState file does not exist');
+        console.log('cursor-auth: loadState file does not exist');
         return null;
       }
 
       const content = await fs.promises.readFile(fullPath, 'utf-8');
-      if (enableDebug) {
-        try {
-          const stat = fs.statSync(fullPath);
-          console.log('cursor-auth: loadState fileSize=', stat.size, 'modified=', stat.mtime.toISOString());
-        } catch (e) { console.warn('cursor-auth: loadState stat failed', e); }
-      }
+      
+      try {
+        const stat = fs.statSync(fullPath);
+        console.log('cursor-auth: loadState fileSize=', stat.size, 'modified=', stat.mtime.toISOString());
+      } catch (e) { console.warn('cursor-auth: loadState stat failed', e); }
+      
       const parsed = JSON.parse(content);
       const state = CursorAuthStateSchema.parse(parsed);
       // Normalize duplicate cookie values so that any lookup (e.g. .find)
@@ -203,12 +212,12 @@ export class AuthSession {
         }
         state.sessionCookies = state.sessionCookies.map(c => ({ ...c, value: lastValueByName[c.name] ?? c.value }));
       }
-      if (enableDebug) {
-        console.log('cursor-auth: loadState parsed sessionCookies count=', (state.sessionCookies || []).length);
-      }
+      
+      console.log('cursor-auth: loadState parsed sessionCookies count=', (state.sessionCookies || []).length);
+      
       return state;
     } catch (error) {
-      if (process.env.DEBUG_AUTH === '1') console.warn('cursor-auth: Failed to load cursor auth state:', error);
+      console.warn('cursor-auth: Failed to load cursor auth state:', error);
       return null;
     }
   }
