@@ -44,8 +44,11 @@ function collectPackageRootsFromTrace(traceFile) {
   try {
     const json = JSON.parse(fs.readFileSync(traceFile, 'utf8'))
     const files = Array.isArray(json.files) ? json.files : []
+    const baseDir = path.dirname(traceFile)
     const roots = []
-    for (const f of files) {
+    for (const rel of files) {
+      // Resolve file paths relative to the trace file location when not absolute.
+      const f = path.isAbsolute(rel) ? rel : path.resolve(baseDir, rel)
       const idx = f.lastIndexOf(`${path.sep}node_modules${path.sep}`)
       if (idx === -1) continue
       const after = f.slice(idx + (`${path.sep}node_modules${path.sep}`).length)
@@ -116,4 +119,3 @@ function main() {
 }
 
 main()
-
