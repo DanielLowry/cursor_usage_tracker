@@ -128,6 +128,22 @@ copy_dep_from_base() {
     fi
   fi
 
+  # Fallback 2: locate via Next's parent node_modules (common for pnpm virtual store)
+  if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
+    local next_pkg_dir
+    next_pkg_dir="$(pnpm --filter @cursor-usage/web exec node -e 'const p=require("path");try{console.log(p.dirname(require.resolve("next/package.json")))}catch(e){process.exit(0)}' 2>/dev/null || true)"
+    next_pkg_dir="${next_pkg_dir//$'\r'/}"
+    next_pkg_dir="${next_pkg_dir//$'\n'/}"
+    if [[ -n "$next_pkg_dir" && -d "$next_pkg_dir" ]]; then
+      local next_parent
+      next_parent="$(dirname "$next_pkg_dir")"
+      local candidate_path2="$next_parent/$dep_name"
+      if [[ -d "$candidate_path2" ]]; then
+        resolved_dir="$candidate_path2"
+      fi
+    fi
+  fi
+
   if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
     log "warn: copy_dep_from_base: unable to resolve '$dep_name' from base '$base_pkg'"
     return 1
@@ -491,6 +507,21 @@ while true; do
             resolved_dir="$candidate_path"
             log "Fallback located '$module_name' under base node_modules: '$resolved_dir'"
           fi
+        fi
+      fi
+    fi
+
+    if [[ -z "$resolved_dir" || ! -d "$resolved_dir" ]]; then
+      # Fallback 2: locate via Next's parent node_modules
+      next_pkg_dir="$(pnpm --filter @cursor-usage/web exec node -e 'const p=require("path");try{console.log(p.dirname(require.resolve("next/package.json")))}catch(e){process.exit(0)}' 2>/dev/null || true)"
+      next_pkg_dir="${next_pkg_dir//$'\r'/}"
+      next_pkg_dir="${next_pkg_dir//$'\n'/}"
+      if [[ -n "$next_pkg_dir" && -d "$next_pkg_dir" ]]; then
+        next_parent="$(dirname "$next_pkg_dir")"
+        candidate_path2="$next_parent/$module_name"
+        if [[ -d "$candidate_path2" ]]; then
+          resolved_dir="$candidate_path2"
+          log "Fallback via next parent located '$module_name': '$resolved_dir'"
         fi
       fi
     fi
