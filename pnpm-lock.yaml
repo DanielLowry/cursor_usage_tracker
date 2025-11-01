@@ -38,9 +38,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@noble/ciphers':
-        specifier: ^0.4.1
-        version: 0.4.1
       archiver:
         specifier: ^5.3.1
         version: 5.3.2
@@ -114,21 +111,12 @@ importers:
 
   apps/worker:
     dependencies:
-      '@cursor-usage/db':
-        specifier: workspace:*
-        version: link:../../packages/db
-      '@cursor-usage/hash':
-        specifier: workspace:*
-        version: link:../../packages/shared/hash
       '@cursor-usage/ingest':
         specifier: workspace:*
         version: link:../../packages/shared/ingest
       '@cursor-usage/redis':
         specifier: workspace:*
         version: link:../../packages/shared/redis
-      '@cursor-usage/types':
-        specifier: workspace:*
-        version: link:../../packages/types
       bullmq:
         specifier: ^5.1.0
         version: 5.56.10
@@ -189,9 +177,6 @@ importers:
       '@cursor-usage/config':
         specifier: workspace:*
         version: link:../config
-      '@cursor-usage/types':
-        specifier: workspace:*
-        version: link:../types
       eslint:
         specifier: ^8.56.0
         version: 8.57.1
@@ -236,9 +221,6 @@ importers:
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.10
-      '@types/node-fetch':
-        specifier: ^2.6.13
-        version: 2.6.13
       tsup:
         specifier: ^8.5.0
         version: 8.5.0(jiti@1.21.7)(postcss@8.5.6)(tsx@4.20.4)(typescript@5.9.2)(yaml@2.8.1)
@@ -251,9 +233,6 @@ importers:
 
   packages/shared/hash:
     devDependencies:
-      '@cursor-usage/config':
-        specifier: workspace:*
-        version: link:../../config
       eslint:
         specifier: ^8.56.0
         version: 8.57.1
@@ -291,9 +270,6 @@ importers:
 
   packages/shared/normalize:
     devDependencies:
-      '@cursor-usage/config':
-        specifier: workspace:*
-        version: link:../../config
       '@typescript-eslint/eslint-plugin':
         specifier: ^6.19.0
         version: 6.21.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.2))(eslint@8.57.1)(typescript@5.9.2)
@@ -898,9 +874,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@noble/ciphers@0.4.1':
-    resolution: {integrity: sha512-QCOA9cgf3Rc33owG0AYBB9wszz+Ul2kramWN8tXG44Gyciud/tbkEqvxRF/IpqQaBpRBNi9f4jdNxqB2CQCIXg==}
-
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
     engines: {node: '>= 8'}
@@ -1084,9 +1057,6 @@ packages:
 
   '@types/json5@0.0.29':
     resolution: {integrity: sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==}
-
-  '@types/node-fetch@2.6.13':
-    resolution: {integrity: sha512-QGpRVpzSaUs30JBSGPjOg4Uveu384erbHBoT1zeONvyCfwQxIkUshLAOqN/k9EjGviPRmWTTe6aH2qySWKTVSw==}
 
   '@types/node@20.19.10':
     resolution: {integrity: sha512-iAFpG6DokED3roLSP0K+ybeDdIX6Bc0Vd3mLW5uDqThPWtNos3E+EqOM11mPQHKzfWHqEBuLjIlsBQQ8CsISmQ==}
@@ -4050,8 +4020,6 @@ snapshots:
   '@next/swc-win32-x64-msvc@13.4.19':
     optional: true
 
-  '@noble/ciphers@0.4.1': {}
-
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -4195,11 +4163,6 @@ snapshots:
   '@types/json-schema@7.0.15': {}
 
   '@types/json5@0.0.29': {}
-
-  '@types/node-fetch@2.6.13':
-    dependencies:
-      '@types/node': 20.5.7
-      form-data: 4.0.4
 
   '@types/node@20.19.10':
     dependencies:
