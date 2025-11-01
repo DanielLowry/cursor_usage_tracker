@@ -49,17 +49,7 @@ ensure_command() {
   command -v "$cmd" >/dev/null 2>&1 || fatal "Required command \"$cmd\" is not available in PATH."
 }
 
-load_env_file() {
-  local env_file="$1"
-  if [[ ! -f "$env_file" ]]; then
-    fatal "Expected environment file \"$env_file\" to exist."
-  fi
-
-  # shellcheck source=/dev/null
-  set -a
-  source "$env_file"
-  set +a
-}
+### (env file handling removed; release does not copy or load env files)
 
 resolve_workspace_module_dir() {
   local module_name="$1"
@@ -248,10 +238,7 @@ else
 fi
 
 export NODE_ENV=production
-
-ENV_FILE=".env.production.local"
-log "Loading production environment from $ENV_FILE"
-load_env_file "$ENV_FILE"
+# Note: build does not read or copy env files; rely on current environment
 
 RELEASES_DIR="$REPO_ROOT/releases"
 RELEASE_NAME="cursor-usage-web-${VERSION}"
@@ -359,6 +346,10 @@ log "Running smoke tests (module resolution)"
 
 # 5) Provide root package.json so "pnpm web:pdn:lan" works in the release
 cp -a "$REPO_ROOT/package.json" "$RELEASE_DIR/package.json"
+
+# 7) Sanitize: ensure no environment files are included in the artifact
+log "Sanitizing release: removing any .env* files"
+find "$RELEASE_DIR" -type f -name ".env*" -print -delete || true
 
 # Provide a quick-start readme in the release artifact.
 cat <<'EOF' > "$RELEASE_DIR/README-release.md"
