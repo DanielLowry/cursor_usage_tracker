@@ -60,38 +60,19 @@ load_env_file() {
 
 resolve_workspace_module_dir() {
   local module_name="$1"
-  local resolved_path
+  local resolved_path=""
 
-  resolved_path="$(MODULE_NAME="$module_name" pnpm --filter @cursor-usage/web exec node - <<'NODE'
-const path = require('path')
-const moduleName = process.env.MODULE_NAME
-if (!moduleName) {
-  process.exit(2)
-}
-try {
-  const resolved = require.resolve(moduleName + '/package.json')
-  process.stdout.write(path.dirname(resolved))
-} catch (err) {
-  if (err && err.code === 'MODULE_NOT_FOUND') {
-    process.exit(3)
-  }
-  throw err
-}
-NODE
-)"
-
-  case "$?" in
-    0)
-      ;;
-    3)
+  if ! resolved_path="$(pnpm --filter @cursor-usage/web exec node "$NODE_MODULES_HELPER" resolve "$module_name")"; then
+    local exit_status=$?
+    if (( exit_status == 3 )); then
       fatal "Unable to resolve workspace module \"$module_name\". Ensure it is installed."
-      ;;
-    *)
-      fatal "Failed to resolve workspace module \"$module_name\" (unexpected error)."
-      ;;
-  esac
+    fi
+    fatal "Failed to resolve workspace module \"$module_name\" (exit status $exit_status)."
+  fi
 
-  resolved_path="${resolved_path%"${resolved_path##*[![:space:]]}"}"
+  # Trim trailing newline characters if any.
+  resolved_path="${resolved_path//$'\r'/}"
+  resolved_path="${resolved_path//$'\n'/}"
 
   if [[ -z "$resolved_path" || ! -d "$resolved_path" ]]; then
     fatal "Resolved path for module \"$module_name\" is empty or not a directory."
@@ -118,99 +99,7 @@ copy_workspace_module() {
 
 detect_missing_node_modules() {
   local node_modules_dir="$1"
-  TARGET_NODE_MODULES="$node_modules_dir" node <<'NODE'
-const fs = require('fs')
-const path = require('path')
-const { createRequire, builtinModules } = require('module')
-
-const root = process.env.TARGET_NODE_MODULES
-if (!root) {
-  process.exit(1)
-}
-
-const absoluteRoot = path.resolve(root)
-
-const seen = new Set()
-const packages = []
-
-function visitNodeModules(dir) {
-  if (!dir || seen.has(dir)) return
-  seen.add(dir)
-
-  let entries
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
-  } catch (err) {
-    if (err && err.code === 'ENOENT') return
-    throw err
-  }
-
-  for (const entry of entries) {
-    if (entry.name === '.bin') continue
-    if (!entry.isDirectory()) continue
-
-    const fullPath = path.join(dir, entry.name)
-
-    if (entry.name.startsWith('@')) {
-      visitNodeModules(fullPath)
-      continue
-    }
-
-    const manifestPath = path.join(fullPath, 'package.json')
-    if (!fs.existsSync(manifestPath)) {
-      continue
-    }
-
-    packages.push({ dir: fullPath, manifestPath })
-
-    const nestedNodeModules = path.join(fullPath, 'node_modules')
-    if (fs.existsSync(nestedNodeModules)) {
-      visitNodeModules(nestedNodeModules)
-    }
-  }
-}
-
-visitNodeModules(absoluteRoot)
-
-const builtin = new Set(builtinModules)
-const missing = new Map()
-
-for (const { dir, manifestPath } of packages) {
-  let manifest
-  try {
-    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-  } catch {
-    continue
-  }
-
-  const deps = manifest.dependencies ? Object.keys(manifest.dependencies) : []
-  if (deps.length === 0) continue
-
-  const req = createRequire(manifestPath)
-
-  for (const dep of deps) {
-    if (!dep || builtin.has(dep)) continue
-    try {
-      req.resolve(dep + '/package.json')
-    } catch (err) {
-      if (err && err.code === 'MODULE_NOT_FOUND') {
-        if (!missing.has(dep)) {
-          missing.set(dep, new Set())
-        }
-        missing.get(dep).add(dir)
-      }
-    }
-  }
-}
-
-const missingEntries = Array.from(missing.entries()).sort(([a], [b]) => a.localeCompare(b))
-
-for (const [dep, dependents] of missingEntries) {
-  const requiredBy = Array.from(dependents).join(', ')
-  console.error(`Missing module "${dep}" required by: ${requiredBy}`)
-  console.log(dep)
-}
-NODE
+  node "$NODE_MODULES_HELPER" detect-missing "$node_modules_dir"
 }
 
 ###############################################################################
@@ -268,16 +157,19 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+NODE_MODULES_HELPER="$REPO_ROOT/scripts/utils/node_modules_helper.js"
 
 if [[ "$PWD" != "$REPO_ROOT" ]]; then
   fatal "Run this script from the repository root ($REPO_ROOT). Current directory is $PWD."
 fi
 
 [[ -f "pnpm-workspace.yaml" ]] || fatal "pnpm-workspace.yaml not found; make sure you are in the repository root."
+[[ -f "$NODE_MODULES_HELPER" ]] || fatal "Expected helper script at $NODE_MODULES_HELPER"
 
 ensure_command pnpm
 ensure_command git
 ensure_command zip
+ensure_command node
 
 ###############################################################################
 # Pre-flight checks and setup
@@ -412,9 +304,10 @@ if [[ ! -f "$NEXT_SERVER_ENTRY" ]]; then
   fatal "Expected $NEXT_SERVER_ENTRY to exist after backfilling Next.js runtime files."
 fi
 
-SWC_HELPER_ENTRY="$RELEASE_DIR/apps/web/node_modules/@swc/helpers/_/_interop_require_default.js"
-if [[ ! -f "$SWC_HELPER_ENTRY" ]]; then
-  fatal "Expected SWC helper runtime at $SWC_HELPER_ENTRY but it was not found. Standalone build may be incomplete."
+SWC_HELPER_CJS="$APP_RELEASE_DIR/node_modules/@swc/helpers/lib/_interop_require_default.js"
+SWC_HELPER_ESM="$APP_RELEASE_DIR/node_modules/@swc/helpers/esm/_interop_require_default.js"
+if [[ ! -f "$SWC_HELPER_CJS" && ! -f "$SWC_HELPER_ESM" ]]; then
+  fatal "Expected SWC helper runtime at either $SWC_HELPER_CJS or $SWC_HELPER_ESM but neither was found. Standalone build may be incomplete."
 fi
 
 # Identify and backfill any dependencies that Next's standalone tracing missed so
