@@ -3,6 +3,9 @@
 import { NextResponse } from 'next/server';
 import prisma from '../../../../../../packages/db/src/client';
 
+// Prisma queries must run at request time
+export const dynamic = 'force-dynamic';
+
 type Item = {
   id: string;
   captured_at: string;
@@ -62,5 +65,4 @@ export async function GET(req: Request) {
 
   return NextResponse.json({ items, total });
 }
-
 

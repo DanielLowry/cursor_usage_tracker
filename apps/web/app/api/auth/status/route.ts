@@ -1,8 +1,10 @@
 // Relative path: apps/web/app/api/auth/status/route.ts
 
 import { NextResponse } from 'next/server';
-// Ensure this route runs in the Node runtime and import Playwright dynamically
+// Ensure this route runs in the Node runtime
 export const runtime = 'nodejs';
+// Always evaluate fresh auth state instead of serving a cached payload
+export const dynamic = 'force-dynamic';
 
 import { z } from 'zod';
 import { validateRawCookies, readRawCookies } from '../../../../../../packages/shared/cursor-auth/src';

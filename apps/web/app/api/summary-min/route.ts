@@ -2,6 +2,9 @@
 
 import { NextResponse } from 'next/server';
 
+// Aggregated stats should reflect current database state
+export const dynamic = 'force-dynamic';
+
 // Avoid importing Prisma at build time when DATABASE_URL isn't set; return safe defaults.
 const DATABASE_URL = process.env.DATABASE_URL;
 

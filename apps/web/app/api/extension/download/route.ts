@@ -23,6 +23,8 @@
     and will abort with a clear error if empty.
 */
 export const runtime = 'nodejs';
+// Force dynamic so downloads regenerate/stream per request
+export const dynamic = 'force-dynamic';
 
 import fs from 'fs';
 import path from 'path';
@@ -311,5 +313,4 @@ export async function GET() {
     return new NextResponse('Failed to generate extension', { status: 500 });
   }
 }
-
 

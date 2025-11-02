@@ -4,6 +4,9 @@ import { NextResponse } from 'next/server';
 import { fetchLiveCsv } from '../../../api/_utils/cursorClient';
 import { parseCsvPage } from '../../../api/_utils/csv';
 
+// Pull fresh CSV data on every hit
+export const dynamic = 'force-dynamic';
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -23,5 +26,4 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: e?.message ?? 'fetch_failed' }, { status: 502 });
   }
 }
-
 

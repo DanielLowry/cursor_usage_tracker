@@ -4,6 +4,9 @@ import { NextResponse } from 'next/server';
 import prisma from '../../../../../../../../packages/db/src/client';
 import { gunzipBuffer, parseCsvPage } from '../../../../../../app/api/_utils/csv';
 
+// Always fetch blob content dynamically from the database
+export const dynamic = 'force-dynamic';
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -35,5 +38,4 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
   const pageData = parseCsvPage(csvText, safePage, take, q);
   return NextResponse.json(pageData);
 }
-
 
