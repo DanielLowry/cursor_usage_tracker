@@ -27,6 +27,20 @@ describe('API Route Tests', () => {
   let dispatcher: any;
   let tmpDir: string;
 
+  function createUploadRequest(body: unknown, init?: { url?: string; headers?: Record<string, string> }) {
+    const url = init?.url ?? 'http://127.0.0.1/api/auth/upload-session';
+    const headers = {
+      'Content-Type': 'application/json',
+      Origin: 'chrome-extension://test-extension',
+      ...(init?.headers ?? {}),
+    };
+    return new Request(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+  }
+
   beforeEach(() => {
     dispatcher = getGlobalDispatcher();
     mockAgent = new MockAgent();
@@ -51,11 +65,7 @@ describe('API Route Tests', () => {
 
   describe('/api/auth/upload-session POST', () => {
     test('should return 400 if no sessionData is provided', async () => {
-      const mockRequest = new Request('https://example.com/api/auth/upload-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
+      const mockRequest = createUploadRequest({});
 
       const response = await uploadSessionPost(mockRequest);
       expect(response.status).toBe(400);
@@ -65,11 +75,7 @@ describe('API Route Tests', () => {
 
     test('should successfully upload session data', async () => {
       const mockSessionData = { cookies: [{ name: 'test', value: '123' }] };
-      const mockRequest = new Request('https://example.com/api/auth/upload-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionData: mockSessionData }),
-      });
+      const mockRequest = createUploadRequest({ sessionData: mockSessionData });
 
       const response = await uploadSessionPost(mockRequest);
       expect(response.status).toBe(200);
@@ -84,11 +90,7 @@ describe('API Route Tests', () => {
 
     test('should successfully upload session data and refresh canonical state', async () => {
       const mockSessionData = { cookies: [{ name: 'test', value: '123', domain: 'cursor.com', path: '/', expires: 2000000000 }] };
-      const mockRequest = new Request('https://example.com/api/auth/upload-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionData: mockSessionData }),
-      });
+      const mockRequest = createUploadRequest({ sessionData: mockSessionData });
 
       const response = await uploadSessionPost(mockRequest);
       expect(response.status).toBe(200);
@@ -104,6 +106,18 @@ describe('API Route Tests', () => {
       const expectedDerivedCookies = deriveRawCookiesFromSessionData(mockSessionData);
       // writeAtomically is called with the full state object; assert that sessionCookies matches the derived cookies
       expect(vi.mocked(AuthSession.prototype.writeAtomically)).toHaveBeenCalledWith(expect.objectContaining({ sessionCookies: expectedDerivedCookies }));
+    });
+
+    test('should reject requests from non-LAN hosts', async () => {
+      const mockRequest = createUploadRequest(
+        { sessionData: { cookies: [] } },
+        { url: 'https://example.com/api/auth/upload-session' }
+      );
+
+      const response = await uploadSessionPost(mockRequest);
+      expect(response.status).toBe(403);
+      const json = await response.json();
+      expect(json.reason).toBe('non_lan_origin');
     });
   });
 });
