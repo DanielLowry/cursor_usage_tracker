@@ -13,6 +13,7 @@ function isLanHostname(hostname: string | null | undefined): boolean {
   if (!hostname) return false;
   const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase();
   if (normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1') return true;
+  if (normalized === '0.0.0.0' || normalized === '::') return true;
   if (normalized.endsWith('.local')) return true;
   if (/^10\./.test(normalized)) return true;
   if (/^192\.168\./.test(normalized)) return true;
@@ -39,11 +40,16 @@ export async function POST(request: Request) {
       url.hostname,
       ...(forwardedFor ? forwardedFor.split(',').map((part) => part.trim()).filter(Boolean) : []),
     ];
-    const isLanRequest = candidates.some((host) => isLanHostname(host));
+    const lanFlags = candidates.map((host) => ({ host, isLan: isLanHostname(host) }));
+    const isLanRequest = lanFlags.some((entry) => entry.isLan);
 
     if (!isLanRequest) {
       return NextResponse.json(
-        { error: 'Session uploads are only accepted from the local network' },
+        {
+          error: 'Session uploads are only accepted from the local network',
+          reason: 'non_lan_origin',
+          checkedHosts: lanFlags,
+        },
         { status: 403, headers: corsHeaders }
       );
     }
