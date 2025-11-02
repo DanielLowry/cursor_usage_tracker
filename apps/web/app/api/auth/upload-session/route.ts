@@ -2,41 +2,36 @@
 
 import { NextResponse } from 'next/server';
 // import { sessionStore } from '../../../../lib/utils/file-session-store'; // Removed as per plan
-import { persistEncryptedSessionData, deriveRawCookiesFromSessionData, validateRawCookies, writeRawCookiesAtomic } from '../../../../../../packages/shared/cursor-auth/src';
-import fs from 'fs';
-import path from 'path';
+import {
+  persistEncryptedSessionData,
+  deriveRawCookiesFromSessionData,
+  validateRawCookies,
+  writeRawCookiesAtomic,
+} from '../../../../../../packages/shared/cursor-auth/src';
 
 export async function POST(request: Request) {
-  try {
-    // CORS handling for the actual request
-    const origin = request.headers.get('origin');
-    const isChromeExtension = origin && origin.startsWith('chrome-extension://');
+  const origin = request.headers.get('origin') ?? '';
+  const isChromeExtension = origin.startsWith('chrome-extension://');
 
+  const corsHeaders: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Origin': isChromeExtension ? origin : '*',
+  };
+
+  try {
     // Ensure request is over HTTPS in production
     if (process.env.NODE_ENV === 'production' && request.headers.get('x-forwarded-proto') !== 'https') {
-      return NextResponse.json({ error: 'HTTPS required' }, { status: 403 });
-    }
-
-    // CORS headers
-    const responseHeaders: Record<string, string> = {
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
-
-    // Set Allow-Origin based on request origin
-    if (isChromeExtension) {
-      responseHeaders['Access-Control-Allow-Origin'] = origin!;
-    } else {
-      responseHeaders['Access-Control-Allow-Origin'] = '*';
+      return NextResponse.json({ error: 'HTTPS required' }, { status: 403, headers: corsHeaders });
     }
 
     const body = await request.json();
     const { sessionData } = body;
 
     if (!sessionData) {
-      return NextResponse.json({ error: 'No session data provided' }, { 
+      return NextResponse.json({ error: 'No session data provided' }, {
         status: 400,
-        headers: responseHeaders 
+        headers: corsHeaders,
       });
     }
 
@@ -61,10 +56,10 @@ export async function POST(request: Request) {
       verification = { ok: false, status: null, hasUser: false, reason: `validation_error:${e instanceof Error ? e.message : String(e)}` };
     }
 
-    return NextResponse.json({ success: true, sessionFilename, verification }, { headers: responseHeaders });
+    return NextResponse.json({ success: true, sessionFilename, verification }, { headers: corsHeaders });
   } catch (error) {
     console.error('Session upload failed:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }
 
