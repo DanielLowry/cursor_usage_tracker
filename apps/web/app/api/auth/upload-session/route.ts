@@ -9,6 +9,19 @@ import {
   writeRawCookiesAtomic,
 } from '../../../../../../packages/shared/cursor-auth/src';
 
+function isLanHostname(hostname: string | null | undefined): boolean {
+  if (!hostname) return false;
+  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1') return true;
+  if (normalized.endsWith('.local')) return true;
+  if (/^10\./.test(normalized)) return true;
+  if (/^192\.168\./.test(normalized)) return true;
+  if (/^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(normalized)) return true;
+  if (/^169\.254\./.test(normalized)) return true;
+  if (/^fc[0-9a-f]{2}/.test(normalized) || /^fd[0-9a-f]{2}/.test(normalized)) return true; // IPv6 unique-local
+  return false;
+}
+
 export async function POST(request: Request) {
   const origin = request.headers.get('origin') ?? '';
   const isChromeExtension = origin.startsWith('chrome-extension://');
@@ -20,9 +33,19 @@ export async function POST(request: Request) {
   };
 
   try {
-    // Ensure request is over HTTPS in production
-    if (process.env.NODE_ENV === 'production' && request.headers.get('x-forwarded-proto') !== 'https') {
-      return NextResponse.json({ error: 'HTTPS required' }, { status: 403, headers: corsHeaders });
+    const url = new URL(request.url);
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const candidates = [
+      url.hostname,
+      ...(forwardedFor ? forwardedFor.split(',').map((part) => part.trim()).filter(Boolean) : []),
+    ];
+    const isLanRequest = candidates.some((host) => isLanHostname(host));
+
+    if (!isLanRequest) {
+      return NextResponse.json(
+        { error: 'Session uploads are only accepted from the local network' },
+        { status: 403, headers: corsHeaders }
+      );
     }
 
     const body = await request.json();
